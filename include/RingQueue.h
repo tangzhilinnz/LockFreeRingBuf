@@ -22,8 +22,6 @@
 #include <chrono>
 #include <thread>
 
-#include "Fence.h"
-
 #define __CHECK_POWER_OF_2(x) ((x) > 0 && ((x) & ((x) - 1)) == 0)
 
 namespace { // not for user
@@ -186,32 +184,32 @@ namespace {
     template <typename T, unsigned int capacity>
     bool __spsc_queue<T, capacity>::try_push(const T& t)
     {
-        //if (minFreeSpace_ > 0) {
+        // if (minFreeSpace_ > 0) {
         //    arr_[fifo_.in & (capacity - 1)] = t;
         //    --minFreeSpace_;
-        //    Fence::sfence();
+        //    asm volatile("sfence" ::: "memory");
         //    ++fifo_.in;
         //    return true;
-        //}
-        //else {
+        // }
+        // else {
         //    if (capacity - fifo_.in + fifo_.out == 0)
         //        return false;
         //    minFreeSpace_ = capacity - fifo_.in + fifo_.out;
         //    arr_[fifo_.in & (capacity - 1)] = t;
         //    --minFreeSpace_;
-        //    //asm volatile("sfence" ::: "memory");
-        //    Fence::sfence();
+        //    asm volatile("sfence" ::: "memory");
+        //    //Fence::sfence();
         //    ++fifo_.in;
         //    return true;
-        //}
+        // }
 
         if (capacity - fifo_.in + fifo_.out == 0)
             return false;
 
         arr_[fifo_.in & (capacity - 1)] = t;
 
-        //asm volatile("sfence" ::: "memory");
-        Fence::sfence();
+        asm volatile("sfence" ::: "memory");
+        //Fence::sfence();
 
         ++fifo_.in;
 
@@ -221,32 +219,31 @@ namespace {
     template <typename T, unsigned int capacity>
     bool __spsc_queue<T, capacity>::try_push(T&& t)
     {
-        //if (minFreeSpace_ > 0) {
-        //    arr_[fifo_.in & (capacity - 1)] = t;
-        //    --minFreeSpace_;
-        //    Fence::sfence();
-        //    ++fifo_.in;
-        //    return true;
-        //}
-        //else {
-        //    if (capacity - fifo_.in + fifo_.out == 0)
-        //        return false;
-        //    minFreeSpace_ = capacity - fifo_.in + fifo_.out;
-        //    arr_[fifo_.in & (capacity - 1)] = std::move(t);
-        //    --minFreeSpace_;
-        //        asm volatile("sfence" ::: "memory");
-        //        Fence::sfence();
-        //    ++fifo_.in;
-        //    return true;
-        //}
+        // if (minFreeSpace_ > 0) {
+        //     arr_[fifo_.in & (capacity - 1)] = t;
+        //     --minFreeSpace_;
+        //     asm volatile("sfence" ::: "memory");
+        //     ++fifo_.in;
+        //     return true;
+        // }
+        // else {
+        //     if (capacity - fifo_.in + fifo_.out == 0)
+        //         return false;
+        //     minFreeSpace_ = capacity - fifo_.in + fifo_.out;
+        //     arr_[fifo_.in & (capacity - 1)] = std::move(t);
+        //     --minFreeSpace_;
+        //     asm volatile("sfence" ::: "memory");
+        //     ++fifo_.in;
+        //     return true;
+        // }
 
         if (capacity - fifo_.in + fifo_.out == 0)
             return false;
 
         arr_[fifo_.in & (capacity - 1)] = std::move(t);
 
-        //asm volatile("sfence" ::: "memory");
-        Fence::sfence();
+        asm volatile("sfence" ::: "memory");
+        //Fence::sfence();
 
         ++fifo_.in;
 
@@ -257,13 +254,14 @@ namespace {
     void __spsc_queue<T, capacity>::wait_push(const T& t)
     {
         while (capacity - fifo_.in + fifo_.out == 0) {
-            std::this_thread::sleep_for(std::chrono::microseconds(0));
+            //std::this_thread::sleep_for(std::chrono::microseconds(1));
+            std::cout << "";
         }
 
         arr_[fifo_.in & (capacity - 1)] = t;
 
-        //asm volatile("sfence" ::: "memory");
-        Fence::sfence();
+        asm volatile("sfence" ::: "memory");
+        //Fence::sfence();
 
         ++fifo_.in;
     }
@@ -272,13 +270,14 @@ namespace {
     void __spsc_queue<T, capacity>::wait_push(T&& t)
     {
         while (capacity - fifo_.in + fifo_.out == 0) {
-            std::this_thread::sleep_for(std::chrono::microseconds(0));
+            //std::this_thread::sleep_for(std::chrono::microseconds(1));
+            std::cout << "";
         }
 
         arr_[fifo_.in & (capacity - 1)] = std::move(t);
 
-        //asm volatile("sfence" ::: "memory");
-        Fence::sfence();
+        asm volatile("sfence" ::: "memory");
+        //Fence::sfence();
 
         ++fifo_.in;
     }
@@ -291,9 +290,9 @@ namespace {
 
         t = std::move(arr_[fifo_.out & (capacity - 1)]);
 
-        //asm volatile("sfence" ::: "memory");
+        asm volatile("sfence" ::: "memory");
         //Fence::sfence();
-        Fence::lfence();
+        //Fence::lfence();
 
         ++fifo_.out;
 
@@ -334,8 +333,8 @@ namespace {
             memcpy(arr + idx_in, ret, l * sizeof(T));
             memcpy(arr, ret + l, (len - l) * sizeof(T));
 
-            //asm volatile("sfence" ::: "memory");
-            Fence::sfence();
+            asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
 
             fifo->in += len;
 
@@ -355,9 +354,9 @@ namespace {
             memcpy(ret, arr + idx_out, l * sizeof(T));
             memcpy(ret + l, arr, (len - l) * sizeof(T));
 
-            //asm volatile("sfence" ::: "memory");
+            asm volatile("sfence" ::: "memory");
             //Fence::sfence();
-            Fence::lfence();
+            //Fence::lfence();
 
             fifo->out += len;
 
@@ -385,8 +384,8 @@ namespace {
             for (unsigned int i = 0; i < len - l; i++)
                 arr[i] = std::move(ret[l + i]);
 
-            //asm volatile("sfence" ::: "memory");
-            Fence::sfence();
+            asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
 
             fifo->in += len;
 
@@ -409,9 +408,9 @@ namespace {
             for (unsigned int i = 0; i < len - l; i++)
                 ret[l + i] = std::move(arr[i]);
 
-            //asm volatile("sfence" ::: "memory");
+            asm volatile("sfence" ::: "memory");
             //Fence::sfence();
-            Fence::lfence();
+            //Fence::lfence();
 
             fifo->out += len;
 

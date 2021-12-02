@@ -22,8 +22,8 @@ const int AddNum = 100000000;
 const int ThreadNum = 1;
 
 #ifndef USE_ACTIVE
-const int RingBufSize = 16 * 1024;
-const int batchSizePush = 512;
+const int RingBufSize = 1024 * 1024 * 16;
+const int batchSizePush = 256;
 const int batchSizePop = 512;
 #endif
 
@@ -56,10 +56,10 @@ void add() {
 #else
         ringQueue->wait_push([&] { ++Result; });
         i++;
-        /*bool stat = ringQueue->try_push([&] { ++Result; });
-        if (stat) i++;*/
-        /*int n = ringQueue->push(stageBufPush, batchSizePush);
-        i += n;*/
+        // bool stat = ringQueue->try_push([&] { ++Result; });
+        // if (stat) i++;
+        // int n = ringQueue->push(stageBufPush, batchSizePush);
+        // i += n;
 #endif 
     }
 
@@ -115,7 +115,7 @@ int main() {
 
 
 #ifdef USE_ACTIVE
-    while (Result != AddNum * ThreadNum) { std::cout << Result << std::endl; }
+    while (Result != AddNum * ThreadNum) { std::this_thread::sleep_for(std::chrono::microseconds(1)); }
 #endif
 
     std::cout << "Result: " << Result << std::endl;
