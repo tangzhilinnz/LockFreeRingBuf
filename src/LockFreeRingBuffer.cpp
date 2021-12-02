@@ -54,10 +54,12 @@ void add() {
         activeQueue->send([&] { ++Result; });
         i++;
 #else
-        bool stat = ringQueue->push([&] { ++Result; });
-        if (stat) i++;
-        // int n = ringQueue->push(stageBufPush, batchSizePush);
-        // i += n;
+        ringQueue->wait_push([&] { ++Result; });
+        i++;
+        /*bool stat = ringQueue->try_push([&] { ++Result; });
+        if (stat) i++;*/
+        /*int n = ringQueue->push(stageBufPush, batchSizePush);
+        i += n;*/
 #endif 
     }
 
@@ -102,6 +104,11 @@ int main() {
 
     std::cout << "test" << std::endl;
 
+    auto end = system_clock::now();
+    auto duration = duration_cast<microseconds>(end - start);
+    cout << "cost: "
+        << double(duration.count()) * microseconds::period::num / microseconds::period::den << " seconds" << endl;
+
 #ifndef USE_ACTIVE
     RingBufBGThrread.join();
 #endif
@@ -113,12 +120,12 @@ int main() {
 
     std::cout << "Result: " << Result << std::endl;
 
-    auto end = system_clock::now();
-    auto duration = duration_cast<microseconds>(end - start);
+    end = system_clock::now();
+    duration = duration_cast<microseconds>(end - start);
 
     cout << "cost: "
-         << double(duration.count()) * microseconds::period::num / microseconds::period::den << " seconds" << endl;
+        << double(duration.count()) * microseconds::period::num / microseconds::period::den << " seconds" << endl;
 
 
-	return 0;
+    return 0;
 }
