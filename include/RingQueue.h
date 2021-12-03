@@ -53,6 +53,7 @@ public:
     bool pop(T& ret);
 
     int push(const T* ret, int n);
+    int push(T* ret, int n);
     int pop(T* ret, int n);
 
 private:
@@ -105,6 +106,12 @@ int spsc_queue<T, capacity>::push(const T* ret, int n)
 }
 
 template <typename T, unsigned int capacity>
+int spsc_queue<T, capacity>::push(T* ret, int n)
+{
+    return queue_.push(ret, n);
+}
+
+template <typename T, unsigned int capacity>
 int spsc_queue<T, capacity>::pop(T* ret, int n)
 {
     return queue_.pop(ret, n);
@@ -122,7 +129,7 @@ namespace {
         // An extra cache-line to separate the variables that are primarily
         // updated/read by the producer (above) from the ones by the
         // consumer(below)
-        char cacheLineSpacer[2 * BYTES_PER_CACHE_LINE];
+        char cacheLineSpacer[1 * BYTES_PER_CACHE_LINE];
         unsigned int mask;
         unsigned int size;
         unsigned int out;
@@ -153,6 +160,7 @@ namespace {
         bool pop(T& ret);
 
         int push(const T* ret, int n);
+        int push(T* ret, int n);
         int pop(T* ret, int n);
 
     private:
@@ -306,6 +314,12 @@ namespace {
     }
 
     template <typename T, unsigned int capacity>
+    int __spsc_queue<T, capacity>::push(T* ret, int n)
+    {
+        return WORKER::push(&fifo_, ret, n);
+    }
+
+    template <typename T, unsigned int capacity>
     int __spsc_queue<T, capacity>::pop(T* ret, int n)
     {
         return WORKER::pop(&fifo_, ret, n);
@@ -321,6 +335,27 @@ namespace {
     {
     public:
         static int push(__fifo* fifo, const T* ret, int n)
+        {
+            unsigned int len = _min(n, fifo->size - fifo->in + fifo->out);
+            if (len == 0)
+                return 0;
+
+            unsigned int idx_in = fifo->in & fifo->mask;
+            unsigned int l = _min(len, fifo->size - idx_in);
+            T* arr = (T*)fifo->buffer;
+
+            memcpy(arr + idx_in, ret, l * sizeof(T));
+            memcpy(arr, ret + l, (len - l) * sizeof(T));
+
+            asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
+
+            fifo->in += len;
+
+            return len;
+        }
+
+        static int push(__fifo* fifo, T* ret, int n)
         {
             unsigned int len = _min(n, fifo->size - fifo->in + fifo->out);
             if (len == 0)
@@ -379,6 +414,30 @@ namespace {
             T* arr = (T*)fifo->buffer;
 
             for (unsigned int i = 0; i < l; i++)
+                arr[idx_in + i] = /*std::move*/(ret[i]);
+
+            for (unsigned int i = 0; i < len - l; i++)
+                arr[i] = /*std::move*/(ret[l + i]);
+
+            asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
+
+            fifo->in += len;
+
+            return len;
+        }
+
+        static int push(__fifo* fifo, T* ret, int n)
+        {
+            unsigned int len = _min(n, fifo->size - fifo->in + fifo->out);
+            if (len == 0)
+                return 0;
+
+            unsigned int idx_in = fifo->in & fifo->mask;
+            unsigned int l = _min(len, fifo->size - idx_in);
+            T* arr = (T*)fifo->buffer;
+
+            for (unsigned int i = 0; i < l; i++)
                 arr[idx_in + i] = std::move(ret[i]);
 
             for (unsigned int i = 0; i < len - l; i++)
@@ -391,6 +450,7 @@ namespace {
 
             return len;
         }
+
 
         static int pop(__fifo* fifo, T* ret, int n)
         {

@@ -3,6 +3,9 @@
 #include <iostream>
 #include <string>
 #include <mutex>
+#include <stdlib.h>
+#include <memory>
+#include <array>
 
 #include "active.h"
 #include "RingQueue.h"
@@ -17,13 +20,87 @@ using namespace chrono;
 
 //#define USE_ACTIVE
 
+template <size_t ArgBytes>
+struct UncompressedEntry {
+    // Uniquely identifies a log message by its format string and file
+    // location, assigned at compile time by the preprocessor.
+    uint32_t fmtId;
+
+    // Number of bytes for this header and the various uncompressed
+    // log arguments after it
+    uint32_t entrySize;
+
+    // Stores the rdtsc() value at the time of the log function invocation
+    uint64_t timestamp;
+
+    // After this header are the uncompressed arguments required by
+    // the original format string
+    //char argData[48];
+    std::array<char, ArgBytes> argData;
+
+    mutable  std::unique_ptr<char[]> dyMem;
+
+    UncompressedEntry(int numBytesDym)
+        : dyMem(new char[numBytesDym]) {
+    }
+
+    UncompressedEntry() {}
+
+    // UncompressedEntry(const UncompressedEntry& other) = delete;
+    // UncompressedEntry& operator=(const UncompressedEntry& other) = delete;
+
+    UncompressedEntry(const UncompressedEntry& other)
+        : fmtId(other.fmtId)
+        , entrySize(other.entrySize)
+        , timestamp(other.timestamp)
+        , dyMem(other.dyMem.release()) {
+
+        memcpy(argData.data(), other.argData.data(), ArgBytes);
+    }
+
+    UncompressedEntry(UncompressedEntry&& other)
+        : fmtId(other.fmtId)
+        , entrySize(other.entrySize)
+        , timestamp(other.timestamp)
+        , dyMem(other.dyMem.release()) {
+
+        memcpy(argData.data(), other.argData.data(), ArgBytes);
+    }
+
+    UncompressedEntry& operator=(const UncompressedEntry& other) {
+        fmtId = other.fmtId;
+        entrySize = other.entrySize;
+        timestamp = other.timestamp;
+        memcpy(argData.data(), other.argData.data(), ArgBytes);
+        dyMem.reset(other.dyMem.release());
+
+        return *this;
+    }
+
+    UncompressedEntry& operator=(UncompressedEntry&& other) {
+        //std::swap(fmtId, other.fmtId);
+        //std::swap(entrySize, other.entrySize);
+        //std::swap(timestamp, other.timestamp);
+        //argData.swap(other.argData);
+        //dyMem.swap(other.dyMem);
+
+        fmtId = other.fmtId;
+        entrySize = other.entrySize;
+        timestamp = other.timestamp;
+        memcpy(argData.data(), other.argData.data(), ArgBytes);
+        dyMem.reset(other.dyMem.release());
+
+        return *this;
+    }
+};
 
 const int AddNum = 100000000;
 const int ThreadNum = 1;
+const size_t ArgNum = 32;
 
 #ifndef USE_ACTIVE
-const int RingBufSize = 1024 * 1024 * 16;
-const int batchSizePush = 256;
+const int RingBufSize = 16 * 1024;
+const int batchSizePush = 128;
 const int batchSizePop = 512;
 #endif
 
@@ -35,14 +112,14 @@ int Result = 0;
 typedef std::function< void() > Callback;
 
 #ifndef USE_ACTIVE
-Callback stageBufPop[batchSizePop];
-Callback stageBufPush[batchSizePush];
+/*Callback*/ UncompressedEntry<ArgNum> stageBufPop[batchSizePop];
+/*Callback*/ const UncompressedEntry<ArgNum> stageBufPush[batchSizePush];
 #endif
 
 #ifdef USE_ACTIVE
 auto activeQueue = Active::createActive();
 #else
-auto ringQueue = new spsc_queue<Callback, RingBufSize>();
+auto ringQueue = new spsc_queue</*Callback*/UncompressedEntry<ArgNum>, RingBufSize>();
 #endif
 
 
@@ -54,12 +131,13 @@ void add() {
         activeQueue->send([&] { ++Result; });
         i++;
 #else
-        ringQueue->wait_push([&] { ++Result; });
+        UncompressedEntry<ArgNum> myMsg/*(128)*/;
+        ringQueue->wait_push(/*[&] { ++Result; }*/std::move(myMsg));
         i++;
-        // bool stat = ringQueue->try_push([&] { ++Result; });
-        // if (stat) i++;
-        // int n = ringQueue->push(stageBufPush, batchSizePush);
-        // i += n;
+        //bool stat = ringQueue->try_push([&] { ++Result; });
+        //if (stat) i++;
+        /*int n = ringQueue->push(stageBufPush, batchSizePush);
+        i += n;*/
 #endif 
     }
 
@@ -67,15 +145,19 @@ void add() {
 
 #ifndef USE_ACTIVE
 void RingBufBG() {
-    Callback func;
-    while (Result != AddNum * ThreadNum) {
+    //Callback func;
+    int j = 0;
+    while (/*Result != AddNum * ThreadNum*/ j < AddNum * ThreadNum) {
         /*bool stat = ringQueue->pop(func);
         if (stat) func();*/
 
         int n = ringQueue->pop(stageBufPop, batchSizePop);
         for (int i = 0; i < n; i++) {
-            stageBufPop[i]();
+            /*stageBufPop[i]()*/ char* p = stageBufPop[i].argData.data();
+            p[5] = 'a';
         }
+
+        j += n;
     }
 }
 #endif
@@ -83,9 +165,11 @@ void RingBufBG() {
 int main() {
 
 #ifndef USE_ACTIVE
-    for (int i = 0; i < batchSizePush; i++) {
-        stageBufPush[i] = [&] { ++Result; };
-    }
+    //for (int i = 0; i < batchSizePush; i++) {
+    //    //stageBufPush[i] = [&] { ++Result; };
+    //    UncompressedEntry<ArgNum> myMsg;
+    //    stageBufPush[i] = std::move(myMsg);
+    //}
 #endif
 
     auto start = system_clock::now();
@@ -115,7 +199,7 @@ int main() {
 
 
 #ifdef USE_ACTIVE
-    while (Result != AddNum * ThreadNum) { std::this_thread::sleep_for(std::chrono::microseconds(1)); }
+    //while (Result != AddNum * ThreadNum) { std::cout << Result << std::endl; }
 #endif
 
     std::cout << "Result: " << Result << std::endl;
