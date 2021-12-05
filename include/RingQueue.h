@@ -52,6 +52,19 @@ public:
     void wait_push(T&& t);
     bool pop(T& ret);
 
+    // Attempt to reserve contiguous space for the producer without making 
+    // it visible to the consumer. The caller should invoke finish() before
+    // invoking reserve() again to make the bytes reserved visible to the 
+    // consumer.
+    // This mechanism is in place to allow the producer to initialize the 
+    // contents of the reservation before exposing it to the consumer.This
+    // function will block behind the consumer if there's not enough space.
+    T* reserve(int n);
+    void finish(int n);
+    // =====================================================
+
+    void wait_push(T* ret, int n);
+
     int push(const T* ret, int n);
     int push(T* ret, int n);
     int pop(T* ret, int n);
@@ -97,6 +110,24 @@ template <typename T, unsigned int capacity>
 bool spsc_queue<T, capacity>::pop(T& t)
 {
     return queue_.pop(t);
+}
+
+template <typename T, unsigned int capacity>
+T* spsc_queue<T, capacity>::reserve(int n)
+{
+    return queue_.reserve(n);
+}
+
+template <typename T, unsigned int capacity>
+void spsc_queue<T, capacity>::finish(int n)
+{
+    queue_.finish(n);
+}
+
+template <typename T, unsigned int capacity>
+void spsc_queue<T, capacity>::wait_push(T* ret, int n)
+{
+    queue_.wait_push(ret, n);
 }
 
 template <typename T, unsigned int capacity>
@@ -159,6 +190,10 @@ namespace {
         void wait_push(T&& t);
         bool pop(T& ret);
 
+        T* reserve(int n);
+        void finish(int n);
+
+        void wait_push(T* ret, int n);
         int push(const T* ret, int n);
         int push(T* ret, int n);
         int pop(T* ret, int n);
@@ -308,6 +343,30 @@ namespace {
     }
 
     template <typename T, unsigned int capacity>
+    T* __spsc_queue<T, capacity>::reserve(int n) 
+    {
+        while (capacity - fifo_.in + fifo_.out < n) {
+            std::cout << "";
+        }
+
+        return arr_ + fifo_.in & fifo_.mask;
+    }
+
+    template <typename T, unsigned int capacity>
+    void __spsc_queue<T, capacity>::finish(int n)
+    {
+        // Ensures producer finishes writes before bump
+        asm volatile("sfence" ::: "memory");
+        fifo_.in += n;
+    }
+
+    template <typename T, unsigned int capacity>
+    void __spsc_queue<T, capacity>::wait_push(T* ret, int n)
+    {
+        WORKER::wait_push(&fifo_, ret, n);
+    }
+
+    template <typename T, unsigned int capacity>
     int __spsc_queue<T, capacity>::push(const T* ret, int n)
     {
         return WORKER::push(&fifo_, ret, n);
@@ -325,6 +384,8 @@ namespace {
         return WORKER::pop(&fifo_, ret, n);
     }
 
+
+
     static inline unsigned int _min(unsigned int a, unsigned int b)
     {
         return (a < b) ? a : b;
@@ -334,6 +395,29 @@ namespace {
     class __spsc_worker<T, true>
     {
     public:
+  
+        static void wait_push(__fifo* fifo, T* ret, int n)
+        {
+            if (n == 0)
+                return;
+
+            while (fifo->size - fifo->in + fifo->out < (unsigned int)n) {
+                std::cout << "";
+            }
+
+            unsigned int idx_in = fifo->in & fifo->mask;
+            unsigned int l = _min(n, fifo->size - idx_in);
+            T* arr = (T*)fifo->buffer;
+
+            memcpy(arr + idx_in, ret, l * sizeof(T));
+            memcpy(arr, ret + l, (n - l) * sizeof(T));
+
+            asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
+
+            fifo->in += n;
+        }
+
         static int push(__fifo* fifo, const T* ret, int n)
         {
             unsigned int len = _min(n, fifo->size - fifo->in + fifo->out);
@@ -388,6 +472,8 @@ namespace {
 
             memcpy(ret, arr + idx_out, l * sizeof(T));
             memcpy(ret + l, arr, (len - l) * sizeof(T));
+
+            //std::cout << "test" << std::endl;
 
             asm volatile("sfence" ::: "memory");
             //Fence::sfence();
@@ -450,7 +536,6 @@ namespace {
 
             return len;
         }
-
 
         static int pop(__fifo* fifo, T* ret, int n)
         {

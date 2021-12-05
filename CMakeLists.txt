@@ -11,9 +11,9 @@ SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O2 -Wall")
 
 INCLUDE_DIRECTORIES(/root/Learning/c_c++/LockFreeRingBuf/include/)
 
-# INCLUDE_DIRECTORIES(/root/Learning/c_c++/mimalloc/include/)
-# FIND_LIBRARY(MIMALLOC_LIB mimalloc /root/Learning/c_c++/mimalloc_build/release)
-# link_libraries(${MIMALLOC_LIB})
+#INCLUDE_DIRECTORIES(/root/Learning/c_c++/mimalloc/include/)
+#FIND_LIBRARY(MIMALLOC_LIB mimalloc /root/Learning/c_c++/mimalloc_build/release)
+#link_libraries(${MIMALLOC_LIB})
 #link_libraries(/root/Learning/c_c++/mimalloc_build/release/libmimalloc.a)
 
 # FIND_LIBRARY(HAISQLMALLOC_LIB haisqlmalloc /root/Learning/c_c++/g3log_test/)
@@ -36,8 +36,8 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     # linker which ensures that all symbols are placed in the table.
     target_link_libraries(test1 -rdynamic )
     #======================= 加入 tcmalloc 内存池支持(动态链接) ========================
-    # target_link_libraries(test1 tcmalloc)
-    # message(STATUS "tcmalloc(shared) support added")
+    #target_link_libraries(test1 tcmalloc)
+    #message(STATUS "tcmalloc(shared) support added")
     # ======================= 加入 jemalloc 内存池支持(动态链接) ========================
     #target_link_libraries(test1 jemalloc)
     #message(STATUS "jemalloc(shared) support added")
