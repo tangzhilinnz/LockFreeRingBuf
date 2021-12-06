@@ -47,6 +47,8 @@ public:
     //void init();
 
     int read_available() const;
+    void* end_buf() const;
+    void* begin_buf() const;
 
     bool try_push(const T& t);
     bool try_push(T&& t);
@@ -61,11 +63,11 @@ public:
     // This mechanism is in place to allow the producer to initialize the 
     // contents of the reservation before exposing it to the consumer.This
     // function will block behind the consumer if there's not enough space.
-    T* reserve_1_push();
-    void finish_1_push();
+    T* reserve_1();
+    void finish_1();
 
-    T* get_n_pop(int& n, const int max);
-    void finish_n_pop(const int n);
+    T* peek(int* n, const unsigned int max);
+    void consume(const unsigned int n);
 
     // =====================================================
 
@@ -86,6 +88,18 @@ template <typename T, unsigned int capacity>
 int spsc_queue<T, capacity>::read_available() const
 {
     return queue_.read_available();
+}
+
+template <typename T, unsigned int capacity>
+void* spsc_queue<T, capacity>::end_buf() const
+{
+    return queue_.end_buf();
+}
+
+template <typename T, unsigned int capacity>
+void* spsc_queue<T, capacity>::begin_buf() const
+{
+    return queue_.begin_buf();
 }
 
 template <typename T, unsigned int capacity>
@@ -119,27 +133,27 @@ bool spsc_queue<T, capacity>::pop(T& t)
 }
 
 template <typename T, unsigned int capacity>
-T* spsc_queue<T, capacity>::reserve_1_push()
+T* spsc_queue<T, capacity>::reserve_1()
 {
-    return queue_.reserve_1_push();
+    return queue_.reserve_1();
 }
 
 template <typename T, unsigned int capacity>
-void spsc_queue<T, capacity>::finish_1_push()
+void spsc_queue<T, capacity>::finish_1()
 {
-    queue_.finish_1_push();
+    queue_.finish_1();
 }
 
 template <typename T, unsigned int capacity>
-T* spsc_queue<T, capacity>::get_n_pop(int& n, const int max)
+T* spsc_queue<T, capacity>::peek(int* n, const unsigned int max)
 {
-    return queue_.get_n_pop(n, max);
+    return queue_.peek(n, max);
 }
 
 template <typename T, unsigned int capacity>
-void spsc_queue<T, capacity>::finish_n_pop(const int n)
+void spsc_queue<T, capacity>::consume(const unsigned int n)
 {
-    queue_.finish_n_pop(n);
+    queue_.consume(n);
 }
 
 
@@ -185,7 +199,13 @@ namespace {
         unsigned int size;
         unsigned int out;
         void* buffer;
+        void* endOfBuffer;
     };
+
+    static inline unsigned int _min(unsigned int a, unsigned int b)
+    {
+        return (a < b) ? a : b;
+    }
 
     template <typename T, bool is_trivial = std::is_trivial<T>::value>
     class __spsc_worker;
@@ -204,6 +224,8 @@ namespace {
     public:
 
         int read_available() const;
+        void* end_buf() const;
+        void* begin_buf() const;
 
         bool try_push(const T& t);
         bool try_push(T&& t);
@@ -211,11 +233,11 @@ namespace {
         void wait_push(T&& t);
         bool pop(T& ret);
 
-        T* reserve_1_push();
-        void finish_1_push();
+        T* reserve_1();
+        void finish_1();
 
-        T* get_n_pop(int& n, const int max);
-        void finish_n_pop(const int n);
+        T* peek(int* n, const unsigned int max);
+        void consume(const unsigned int n);
 
         //void wait_push(T* ret, int n);
         int push(const T* ret, int n);
@@ -239,6 +261,7 @@ namespace {
         fifo_.mask = capacity - 1;
         fifo_.size = capacity;
         fifo_.buffer = &arr_;
+        fifo_.endOfBuffer = &arr_ + capacity;
         //minFreeSpace_ = capacity;
     }
 
@@ -246,6 +269,18 @@ namespace {
     int __spsc_queue<T, capacity>::read_available() const
     {
         return fifo_.in - fifo_.out;
+    }
+
+    template <typename T, unsigned int capacity>
+    void* __spsc_queue<T, capacity>::begin_buf() const
+    {
+        return fifo_.buffer;
+    }
+
+    template <typename T, unsigned int capacity>
+    void* __spsc_queue<T, capacity>::end_buf() const
+    {
+        return fifo_.endOfBuffer;
     }
 
     template <typename T, unsigned int capacity>
@@ -367,7 +402,7 @@ namespace {
     }
 
     template <typename T, unsigned int capacity>
-    T* __spsc_queue<T, capacity>::reserve_1_push()
+    T* __spsc_queue<T, capacity>::reserve_1()
     {
         while (capacity - fifo_.in + fifo_.out == 0) {
             std::cout << "" << "";
@@ -382,7 +417,7 @@ namespace {
     }
 
     template <typename T, unsigned int capacity>
-    void __spsc_queue<T, capacity>::finish_1_push()
+    void __spsc_queue<T, capacity>::finish_1()
     {
         // Ensures producer finishes writes before bump
         asm volatile("sfence" ::: "memory");
@@ -391,17 +426,17 @@ namespace {
     }
 
     template <typename T, unsigned int capacity>
-    T* __spsc_queue<T, capacity>::get_n_pop(int& n, const int max)
+    T* __spsc_queue<T, capacity>::peek(int* n, const unsigned int max)
     {
-        n = _min(max, fifo_.in - fifo_.out);
+        *n = _min(max, fifo_.in - fifo_.out);
 
-        return (n == 0) ? nullptr : arr_ + (fifo_.out & fifo_.mask);
+        return arr_ + (fifo_.out & fifo_.mask);
     }
 
     template <typename T, unsigned int capacity>
-    void __spsc_queue<T, capacity>::finish_n_pop(const int n)
+    void __spsc_queue<T, capacity>::consume(const unsigned int n)
     {
-        // Ensures producer finishes writes before bump
+        // Ensures consumer finishes writes before bump
         asm volatile("sfence" ::: "memory");
         fifo_.out += n;
     }
@@ -428,13 +463,6 @@ namespace {
     int __spsc_queue<T, capacity>::pop(T* ret, int n)
     {
         return WORKER::pop(&fifo_, ret, n);
-    }
-
-
-
-    static inline unsigned int _min(unsigned int a, unsigned int b)
-    {
-        return (a < b) ? a : b;
     }
 
     template <typename T>

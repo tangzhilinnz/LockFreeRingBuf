@@ -109,14 +109,14 @@ struct UncompressedEntry {
     //}
 };
 
-const int AddNum = 10000000;
-const int ThreadNum = 10;
+const int AddNum = 100000000;
+const int ThreadNum = 1;
 const size_t ArgNum = 24;
 
 #ifndef USE_ACTIVE
 const int RingBufSize = 16 * 1024;
 //const int batchSizePush = 128;
-const int batchSizePop = 512;
+const int batchSizePop = 210;
 #endif
 
 std::thread Threads[ThreadNum];
@@ -139,6 +139,11 @@ auto activeQueue = Active::createActive();
 std::vector< spsc_queue<UncompressedEntry<ArgNum>, RingBufSize>* > pStagingBuffers;
 //auto ringQueue = new spsc_queue</*Callback*/UncompressedEntry<ArgNum>, RingBufSize>();
 //auto sinkQueue = new spsc_queue</*Callback*/UncompressedEntry<ArgNum>, RingBufSize * 128>();
+
+const int OutBufSize = 16 * 1024 * 1024;
+
+std::unique_ptr<char[]> pOutBufUptr{new char[OutBufSize]};
+
 std::unique_ptr<std::ofstream> outptr;
 #endif
 
@@ -149,6 +154,8 @@ void add(int index) {
     auto pThdLocalSBuf = pStagingBuffers.at(index);
 
     while (i < AddNum/* + 1000*/) {
+
+        //std::cout << i << std::endl;
 #ifdef USE_ACTIVE
         activeQueue->send([&] { ++Result; });
         i++;
@@ -157,11 +164,12 @@ void add(int index) {
         //pStagingBuffers.at(index)->wait_push(std::move(myMsg));
         //i++;
 
-        auto pSpace = pThdLocalSBuf->reserve_1_push();
-        pSpace->entrySize = 100000000;
+        auto pSpace = pThdLocalSBuf->reserve_1();
+        pSpace->entrySize = ArgNum + 24;
         pSpace->timestamp = 0;
+        pSpace->fmtId = 7;
         //pSpace->dyMem.reset(new char[32]);
-        pThdLocalSBuf->finish_1_push();
+        pThdLocalSBuf->finish_1();
 
         i++;
 
@@ -178,6 +186,10 @@ void add(int index) {
 void RingBufBG() {
     //Callback func;
     long j = 0;
+
+    char* p = pOutBufUptr.get();
+    unsigned int remain = OutBufSize;
+
     UncompressedEntry<ArgNum>* pStageBufPop;
     //UncompressedEntry<ArgNum> stageBufPop[batchSizePop];
     while (/*Result != AddNum * ThreadNum*/ j < AddNum * ThreadNum) {
@@ -188,42 +200,47 @@ void RingBufBG() {
 
         for (int index = 0; index < ThreadNum; index++) {
             int n = 0;
-
-            pStageBufPop = pStagingBuffers.at(index)->get_n_pop(n, batchSizePop);
+            pStageBufPop = nullptr;
+            pStageBufPop = pStagingBuffers.at(index)->peek(&n, batchSizePop);
 
             if (n == 0) continue;
 
-            std::cout << "" << "" << "" << "";
+            //std::cout << "" << "" << "" << "";
 
-            pStagingBuffers.at(index)->finish_n_pop(n);
+            int count = n;
+
+            std::cout << count << std::endl;
+
+            while (count > 0) {
+
+                if (remain >= pStageBufPop->entrySize) {
+                    *(uint32_t*)p = pStageBufPop->fmtId;
+                    *(uint64_t*)(p + 4) = pStageBufPop->timestamp;
+
+                    memcpy(p + 12, pStageBufPop->argData, ArgNum);
+
+                    p += 12 + ArgNum;
+
+                    ++pStageBufPop;
+                    if (pStageBufPop == pStagingBuffers.at(index)->end_buf())
+                        pStageBufPop = (UncompressedEntry<ArgNum>*)pStagingBuffers.at(index)->begin_buf();
+
+                    --count;
+                    remain -= 12 + ArgNum;
+                }
+                else {
+                    std::cout << pStageBufPop->entrySize << std::endl;
+                    p = pOutBufUptr.get();
+                    remain = OutBufSize;
+                }
+            }
+
+            pStagingBuffers.at(index)->consume(n);
 
             nPerItr += n;
-
-            // int n = /*ringQueue*/pStagingBuffers.at(index)->pop(/*pStageBufPop*/stageBufPop, batchSizePop);
-
-            //for (int i = 0; i < n; i++) {
-            //    /*stageBufPop[i]()*/ char* p = stageBufPop[i].argData.data();
-            //    p[5] = 'a';
-            //}
-            //pStageBufPop = &stageBufPop[n];
-
-            //for (int i = 0; i < n; i++) {
-            //    cachePop.push/*emplace_back*/(std::move(stageBufPop[i]));
-            //}
-            //cachePop.clear();
-
-            //int tmp = n;
-            //UncompressedEntry<ArgNum>* pStageBufPop = stageBufPop;
-
-            //int count = 0;
-            //while (tmp > 0) {
-            //    int num = sinkQueue->push(pStageBufPop, tmp);
-            //    tmp -= num;
-            //    pStageBufPop += num;
-            //    //std::cout << ++count << std::endl;
-            //}
         }
-        //std::cout << "" << "" << "" << "";
+
+        std::cout << "" << "" << "" << "";
 
         j += nPerItr;
 
