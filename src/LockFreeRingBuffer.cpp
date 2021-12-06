@@ -40,12 +40,12 @@ struct UncompressedEntry {
 
     // After this header are the uncompressed arguments required by
     // the original format string
-    //char argData[ArgBytes];
-    //char* dyMem{nullptr};
+    char argData[ArgBytes];
+    char* dyMem{ nullptr };
 
-    std::array<char, ArgBytes> argData{ 0 };
+    //std::array<char, ArgBytes> argData{0};
 
-    mutable  std::unique_ptr<char[]> dyMem{ nullptr };
+    //mutable  std::unique_ptr<char[]> dyMem{nullptr};
 
     /*UncompressedEntry(int numBytesDym)
         : dyMem(new char[numBytesDym]) {
@@ -53,63 +53,65 @@ struct UncompressedEntry {
 
     UncompressedEntry() {}
 
+    //~UncompressedEntry() {}
+
     // UncompressedEntry(const UncompressedEntry& other) = delete;
     // UncompressedEntry& operator=(const UncompressedEntry& other) = delete;
 
-    UncompressedEntry(const UncompressedEntry& other)
-        : fmtId(other.fmtId)
-        , entrySize(other.entrySize)
-        , timestamp(other.timestamp)
-        , dyMem(other.dyMem.release())/*dyMem(other.dyMem)*/ {
+    //UncompressedEntry(const UncompressedEntry& other)
+    //    : fmtId(other.fmtId)
+    //    , entrySize(other.entrySize)
+    //    , timestamp(other.timestamp)
+    //    , dyMem(other.dyMem.release())/*dyMem(other.dyMem)*/ {
 
-        memcpy(argData.data(), other.argData.data(), ArgBytes);
-        //memcpy(argData, other.argData, ArgBytes);
-    }
+    //    memcpy(argData.data(), other.argData.data(), ArgBytes);
+    //    //memcpy(argData, other.argData, ArgBytes);
+    //}
 
-    UncompressedEntry(UncompressedEntry&& other)
-        : fmtId(other.fmtId)
-        , entrySize(other.entrySize)
-        , timestamp(other.timestamp)
-        , dyMem(other.dyMem.release()) /*dyMem(other.dyMem)*/ {
+    //UncompressedEntry(UncompressedEntry&& other)
+    //    : fmtId(other.fmtId)
+    //    , entrySize(other.entrySize)
+    //    , timestamp(other.timestamp)
+    //    , dyMem(other.dyMem.release()) /*dyMem(other.dyMem)*/ {
 
-        memcpy(argData.data(), other.argData.data(), ArgBytes);
-        //memcpy(argData, other.argData, ArgBytes);
-    }
+    //    memcpy(argData.data(), other.argData.data(), ArgBytes);
+    //    //memcpy(argData, other.argData, ArgBytes);
+    //}
 
-    UncompressedEntry& operator=(const UncompressedEntry& other) {
-        fmtId = other.fmtId;
-        entrySize = other.entrySize;
-        timestamp = other.timestamp;
-        memcpy(argData.data(), other.argData.data(), ArgBytes);
-        //memcpy(argData, other.argData, ArgBytes);
-        dyMem.reset(other.dyMem.release());
-        //dyMem = other.dyMem;
+    //UncompressedEntry& operator=(const UncompressedEntry& other) {
+    //    fmtId = other.fmtId;
+    //    entrySize = other.entrySize;
+    //    timestamp = other.timestamp;
+    //    memcpy(argData.data(), other.argData.data(), ArgBytes);
+    //    //memcpy(argData, other.argData, ArgBytes);
+    //    dyMem.reset(other.dyMem.release());
+    //    //dyMem = other.dyMem;
 
-        return *this;
-    }
+    //    return *this;
+    //}
 
-    UncompressedEntry& operator=(UncompressedEntry&& other) {
-        //std::swap(fmtId, other.fmtId);
-        //std::swap(entrySize, other.entrySize);
-        //std::swap(timestamp, other.timestamp);
-        //argData.swap(other.argData);
-        //dyMem.swap(other.dyMem);
+    //UncompressedEntry& operator=(UncompressedEntry&& other) {
+    //    //std::swap(fmtId, other.fmtId);
+    //    //std::swap(entrySize, other.entrySize);
+    //    //std::swap(timestamp, other.timestamp);
+    //    //argData.swap(other.argData);
+    //    //dyMem.swap(other.dyMem);
 
-        fmtId = other.fmtId;
-        entrySize = other.entrySize;
-        timestamp = other.timestamp;
-        memcpy(argData.data(), other.argData.data(), ArgBytes);
-        //memcpy(argData, other.argData, ArgBytes);
-        dyMem.reset(other.dyMem.release());
-        //dyMem = other.dyMem;
+    //    fmtId = other.fmtId;
+    //    entrySize = other.entrySize;
+    //    timestamp = other.timestamp;
+    //    memcpy(argData.data(), other.argData.data(), ArgBytes);
+    //    //memcpy(argData, other.argData, ArgBytes);
+    //    dyMem.reset(other.dyMem.release());
+    //    //dyMem = other.dyMem;
 
-        return *this;
-    }
+    //    return *this;
+    //}
 };
 
-const int AddNum = 100000000;
-const int ThreadNum = 1;
-const size_t ArgNum = 16;
+const int AddNum = 10000000;
+const int ThreadNum = 10;
+const size_t ArgNum = 24;
 
 #ifndef USE_ACTIVE
 const int RingBufSize = 16 * 1024;
@@ -155,11 +157,11 @@ void add(int index) {
         //pStagingBuffers.at(index)->wait_push(std::move(myMsg));
         //i++;
 
-        auto pSpace = pThdLocalSBuf->reserve_1();
+        auto pSpace = pThdLocalSBuf->reserve_1_push();
         pSpace->entrySize = 100000000;
         pSpace->timestamp = 0;
         //pSpace->dyMem.reset(new char[32]);
-        pThdLocalSBuf->finish_1();
+        pThdLocalSBuf->finish_1_push();
 
         i++;
 
@@ -176,7 +178,8 @@ void add(int index) {
 void RingBufBG() {
     //Callback func;
     long j = 0;
-    UncompressedEntry<ArgNum> stageBufPop[batchSizePop];
+    UncompressedEntry<ArgNum>* pStageBufPop;
+    //UncompressedEntry<ArgNum> stageBufPop[batchSizePop];
     while (/*Result != AddNum * ThreadNum*/ j < AddNum * ThreadNum) {
         /*bool stat = ringQueue->pop(func);
         if (stat) func();*/
@@ -184,7 +187,20 @@ void RingBufBG() {
         int nPerItr = 0;
 
         for (int index = 0; index < ThreadNum; index++) {
-            int n = /*ringQueue*/pStagingBuffers.at(index)->pop(/*pStageBufPop*/stageBufPop, batchSizePop);
+            int n = 0;
+
+            pStageBufPop = pStagingBuffers.at(index)->get_n_pop(n, batchSizePop);
+
+            if (n == 0) continue;
+
+            std::cout << "" << "" << "" << "";
+
+            pStagingBuffers.at(index)->finish_n_pop(n);
+
+            nPerItr += n;
+
+            // int n = /*ringQueue*/pStagingBuffers.at(index)->pop(/*pStageBufPop*/stageBufPop, batchSizePop);
+
             //for (int i = 0; i < n; i++) {
             //    /*stageBufPop[i]()*/ char* p = stageBufPop[i].argData.data();
             //    p[5] = 'a';
@@ -206,9 +222,8 @@ void RingBufBG() {
             //    pStageBufPop += num;
             //    //std::cout << ++count << std::endl;
             //}
-
-            nPerItr += n;
         }
+        //std::cout << "" << "" << "" << "";
 
         j += nPerItr;
 
@@ -251,6 +266,8 @@ int main() {
     mode |= std::ios_base::trunc/*app*/;
     outptr.get()->open("./test.log", mode);
 
+    //std::cout << "test" << std::endl;
+
     //cachePop.reserve(RingBufSize * 128);
     for (int i = 0; i < ThreadNum; i++) {
         pStagingBuffers.push_back(new spsc_queue<UncompressedEntry<ArgNum>, RingBufSize>);
@@ -268,11 +285,11 @@ int main() {
     //std::thread sinkBufBGThrread(sinkBufBG);
 #endif
 
+    std::cout << "test" << std::endl;
+
     for (int i = 0; i < ThreadNum; i++) {
         Threads[i].join();
     }
-
-    std::cout << "test" << std::endl;
 
     auto end = system_clock::now();
     auto duration = duration_cast<microseconds>(end - start);

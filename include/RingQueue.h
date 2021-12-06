@@ -61,8 +61,12 @@ public:
     // This mechanism is in place to allow the producer to initialize the 
     // contents of the reservation before exposing it to the consumer.This
     // function will block behind the consumer if there's not enough space.
-    T* reserve_1();
-    void finish_1();
+    T* reserve_1_push();
+    void finish_1_push();
+
+    T* get_n_pop(int& n, const int max);
+    void finish_n_pop(const int n);
+
     // =====================================================
 
     //void wait_push(T* ret, int n);
@@ -115,16 +119,29 @@ bool spsc_queue<T, capacity>::pop(T& t)
 }
 
 template <typename T, unsigned int capacity>
-T* spsc_queue<T, capacity>::reserve_1()
+T* spsc_queue<T, capacity>::reserve_1_push()
 {
-    return queue_.reserve_1();
+    return queue_.reserve_1_push();
 }
 
 template <typename T, unsigned int capacity>
-void spsc_queue<T, capacity>::finish_1()
+void spsc_queue<T, capacity>::finish_1_push()
 {
-    queue_.finish_1();
+    queue_.finish_1_push();
 }
+
+template <typename T, unsigned int capacity>
+T* spsc_queue<T, capacity>::get_n_pop(int& n, const int max)
+{
+    return queue_.get_n_pop(n, max);
+}
+
+template <typename T, unsigned int capacity>
+void spsc_queue<T, capacity>::finish_n_pop(const int n)
+{
+    queue_.finish_n_pop(n);
+}
+
 
 //template <typename T, unsigned int capacity>
 //void spsc_queue<T, capacity>::wait_push(T* ret, int n)
@@ -194,8 +211,11 @@ namespace {
         void wait_push(T&& t);
         bool pop(T& ret);
 
-        T* reserve_1();
-        void finish_1();
+        T* reserve_1_push();
+        void finish_1_push();
+
+        T* get_n_pop(int& n, const int max);
+        void finish_n_pop(const int n);
 
         //void wait_push(T* ret, int n);
         int push(const T* ret, int n);
@@ -347,7 +367,7 @@ namespace {
     }
 
     template <typename T, unsigned int capacity>
-    T* __spsc_queue<T, capacity>::reserve_1()
+    T* __spsc_queue<T, capacity>::reserve_1_push()
     {
         while (capacity - fifo_.in + fifo_.out == 0) {
             std::cout << "" << "";
@@ -362,12 +382,28 @@ namespace {
     }
 
     template <typename T, unsigned int capacity>
-    void __spsc_queue<T, capacity>::finish_1()
+    void __spsc_queue<T, capacity>::finish_1_push()
     {
         // Ensures producer finishes writes before bump
         asm volatile("sfence" ::: "memory");
         ++fifo_.in;
         //--fifo_.cacheFreeSpace;
+    }
+
+    template <typename T, unsigned int capacity>
+    T* __spsc_queue<T, capacity>::get_n_pop(int& n, const int max)
+    {
+        n = _min(max, fifo_.in - fifo_.out);
+
+        return (n == 0) ? nullptr : arr_ + (fifo_.out & fifo_.mask);
+    }
+
+    template <typename T, unsigned int capacity>
+    void __spsc_queue<T, capacity>::finish_n_pop(const int n)
+    {
+        // Ensures producer finishes writes before bump
+        asm volatile("sfence" ::: "memory");
+        fifo_.out += n;
     }
 
     //template <typename T, unsigned int capacity>
