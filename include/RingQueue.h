@@ -59,11 +59,11 @@ public:
     // This mechanism is in place to allow the producer to initialize the 
     // contents of the reservation before exposing it to the consumer.This
     // function will block behind the consumer if there's not enough space.
-    T* reserve(int n);
-    void finish(int n);
+    T* reserve_1();
+    void finish_1();
     // =====================================================
 
-    void wait_push(T* ret, int n);
+    //void wait_push(T* ret, int n);
 
     int push(const T* ret, int n);
     int push(T* ret, int n);
@@ -113,22 +113,22 @@ bool spsc_queue<T, capacity>::pop(T& t)
 }
 
 template <typename T, unsigned int capacity>
-T* spsc_queue<T, capacity>::reserve(int n)
+T* spsc_queue<T, capacity>::reserve_1()
 {
-    return queue_.reserve(n);
+    return queue_.reserve_1();
 }
 
 template <typename T, unsigned int capacity>
-void spsc_queue<T, capacity>::finish(int n)
+void spsc_queue<T, capacity>::finish_1()
 {
-    queue_.finish(n);
+    queue_.finish_1();
 }
 
-template <typename T, unsigned int capacity>
-void spsc_queue<T, capacity>::wait_push(T* ret, int n)
-{
-    queue_.wait_push(ret, n);
-}
+//template <typename T, unsigned int capacity>
+//void spsc_queue<T, capacity>::wait_push(T* ret, int n)
+//{
+//    queue_.wait_push(ret, n);
+//}
 
 template <typename T, unsigned int capacity>
 int spsc_queue<T, capacity>::push(const T* ret, int n)
@@ -156,6 +156,7 @@ static const uint32_t BYTES_PER_CACHE_LINE = 64;
 namespace {
     struct __fifo
     {
+        //unsigned int cacheFreeSpace;
         unsigned int in;
         // An extra cache-line to separate the variables that are primarily
         // updated/read by the producer (above) from the ones by the
@@ -187,19 +188,18 @@ namespace {
         bool try_push(const T& t);
         bool try_push(T&& t);
         void wait_push(const T& t);
-        void wait_push(T&& t);
+        //void wait_push(T&& t);
         bool pop(T& ret);
 
-        T* reserve(int n);
-        void finish(int n);
+        T* reserve_1();
+        void finish_1();
 
-        void wait_push(T* ret, int n);
+        //void wait_push(T* ret, int n);
         int push(const T* ret, int n);
         int push(T* ret, int n);
         int pop(T* ret, int n);
 
     private:
-        //unsigned int minFreeSpace_;
         __fifo fifo_;
         T arr_[capacity];
 
@@ -210,6 +210,7 @@ namespace {
     template <typename T, unsigned int capacity>
     __spsc_queue<T, capacity>::__spsc_queue()
     {
+        //fifo_.cacheFreeSpace = capacity;
         fifo_.in = 0;
         fifo_.out = 0;
         fifo_.mask = capacity - 1;
@@ -309,21 +310,21 @@ namespace {
         ++fifo_.in;
     }
 
-    template <typename T, unsigned int capacity>
-    void __spsc_queue<T, capacity>::wait_push(T&& t)
-    {
-        while (capacity - fifo_.in + fifo_.out == 0) {
-            //std::this_thread::sleep_for(std::chrono::microseconds(1));
-            std::cout << "";
-        }
+    //template <typename T, unsigned int capacity>
+    //void __spsc_queue<T, capacity>::wait_push(T&& t)
+    //{
+    //    while (capacity - fifo_.in + fifo_.out == 0) {
+    //        //std::this_thread::sleep_for(std::chrono::microseconds(1));
+    //        std::cout << "";
+    //    }
 
-        arr_[fifo_.in & (capacity - 1)] = std::move(t);
+    //    arr_[fifo_.in & (capacity - 1)] = std::move(t);
 
-        asm volatile("sfence" ::: "memory");
-        //Fence::sfence();
+    //    asm volatile("sfence" ::: "memory");
+    //    //Fence::sfence();
 
-        ++fifo_.in;
-    }
+    //    ++fifo_.in;
+    //}
 
     template <typename T, unsigned int capacity>
     bool __spsc_queue<T, capacity>::pop(T& t)
@@ -343,28 +344,29 @@ namespace {
     }
 
     template <typename T, unsigned int capacity>
-    T* __spsc_queue<T, capacity>::reserve(int n) 
+    T* __spsc_queue<T, capacity>::reserve_1()
     {
-        while (capacity - fifo_.in + fifo_.out < n) {
-            std::cout << "";
+        while (capacity - fifo_.in + fifo_.out == 0) {
+            std::cout << "" << "";
         }
 
-        return arr_ + fifo_.in & fifo_.mask;
+        return arr_ + (fifo_.in & fifo_.mask);
     }
 
     template <typename T, unsigned int capacity>
-    void __spsc_queue<T, capacity>::finish(int n)
+    void __spsc_queue<T, capacity>::finish_1()
     {
         // Ensures producer finishes writes before bump
         asm volatile("sfence" ::: "memory");
-        fifo_.in += n;
+        ++fifo_.in;
+        //--fifo_.cacheFreeSpace;
     }
 
-    template <typename T, unsigned int capacity>
-    void __spsc_queue<T, capacity>::wait_push(T* ret, int n)
-    {
-        WORKER::wait_push(&fifo_, ret, n);
-    }
+    //template <typename T, unsigned int capacity>
+    //void __spsc_queue<T, capacity>::wait_push(T* ret, int n)
+    //{
+    //    WORKER::wait_push(&fifo_, ret, n);
+    //}
 
     template <typename T, unsigned int capacity>
     int __spsc_queue<T, capacity>::push(const T* ret, int n)
@@ -395,28 +397,23 @@ namespace {
     class __spsc_worker<T, true>
     {
     public:
-  
-        static void wait_push(__fifo* fifo, T* ret, int n)
-        {
-            if (n == 0)
-                return;
 
-            while (fifo->size - fifo->in + fifo->out < (unsigned int)n) {
-                std::cout << "";
-            }
-
-            unsigned int idx_in = fifo->in & fifo->mask;
-            unsigned int l = _min(n, fifo->size - idx_in);
-            T* arr = (T*)fifo->buffer;
-
-            memcpy(arr + idx_in, ret, l * sizeof(T));
-            memcpy(arr, ret + l, (n - l) * sizeof(T));
-
-            asm volatile("sfence" ::: "memory");
-            //Fence::sfence();
-
-            fifo->in += n;
-        }
+        //static void wait_push(__fifo* fifo, T* ret, int n)
+        //{
+        //    if (n == 0)
+        //        return;
+        //    while (fifo->size - fifo->in + fifo->out < (unsigned int)n) {
+        //        std::cout << "";
+        //    }
+        //    unsigned int idx_in = fifo->in & fifo->mask;
+        //    unsigned int l = _min(n, fifo->size - idx_in);
+        //    T* arr = (T*)fifo->buffer;
+        //    memcpy(arr + idx_in, ret, l * sizeof(T));
+        //    memcpy(arr, ret + l, (n - l) * sizeof(T));
+        //    asm volatile("sfence" ::: "memory");
+        //    //Fence::sfence();
+        //    fifo->in += n;
+        //}
 
         static int push(__fifo* fifo, const T* ret, int n)
         {

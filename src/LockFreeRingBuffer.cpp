@@ -43,13 +43,13 @@ struct UncompressedEntry {
     //char argData[ArgBytes];
     //char* dyMem{nullptr};
 
-    std::array<char, ArgBytes> argData;
+    std::array<char, ArgBytes> argData{ 0 };
 
-    mutable  std::unique_ptr<char[]> dyMem;
+    mutable  std::unique_ptr<char[]> dyMem{ nullptr };
 
-    UncompressedEntry(int numBytesDym)
+    /*UncompressedEntry(int numBytesDym)
         : dyMem(new char[numBytesDym]) {
-    }
+    }*/
 
     UncompressedEntry() {}
 
@@ -60,7 +60,7 @@ struct UncompressedEntry {
         : fmtId(other.fmtId)
         , entrySize(other.entrySize)
         , timestamp(other.timestamp)
-        , dyMem(other.dyMem.release())/*dyMem(other.dyMem)*/{
+        , dyMem(other.dyMem.release())/*dyMem(other.dyMem)*/ {
 
         memcpy(argData.data(), other.argData.data(), ArgBytes);
         //memcpy(argData, other.argData, ArgBytes);
@@ -109,11 +109,11 @@ struct UncompressedEntry {
 
 const int AddNum = 100000000;
 const int ThreadNum = 1;
-const size_t ArgNum = 24;
+const size_t ArgNum = 16;
 
 #ifndef USE_ACTIVE
 const int RingBufSize = 16 * 1024;
-const int batchSizePush = 128;
+//const int batchSizePush = 128;
 const int batchSizePop = 512;
 #endif
 
@@ -144,19 +144,27 @@ std::unique_ptr<std::ofstream> outptr;
 void add(int index) {
     int i = 0;
 
+    auto pThdLocalSBuf = pStagingBuffers.at(index);
+
     while (i < AddNum/* + 1000*/) {
 #ifdef USE_ACTIVE
         activeQueue->send([&] { ++Result; });
         i++;
 #else
-        UncompressedEntry<ArgNum> myMsg/*(256)*/;
-        //char tmp[64];
-        //UncompressedEntry* p = (UncompressedEntry *)tmp;
-        //p->fmtId = 0;
-        /*ringQueue*/pStagingBuffers.at(index)->wait_push(/*[&] { ++Result; }*/std::move(myMsg));
+        //UncompressedEntry<ArgNum> myMsg/*(256)*/;
+        //pStagingBuffers.at(index)->wait_push(std::move(myMsg));
+        //i++;
+
+        auto pSpace = pThdLocalSBuf->reserve_1();
+        pSpace->entrySize = 100000000;
+        pSpace->timestamp = 0;
+        //pSpace->dyMem.reset(new char[32]);
+        pThdLocalSBuf->finish_1();
+
         i++;
-        //bool stat = ringQueue->try_push([&] { ++Result; });
-        //if (stat) i++;
+
+        /*bool stat = ringQueue->try_push([&] { ++Result; });
+        if (stat) i++;*/
         /*int n = ringQueue->push(stageBufPush, batchSizePush);
         i += n;*/
 #endif 
