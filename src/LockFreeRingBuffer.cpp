@@ -1,336 +1,645 @@
-﻿#include <thread>
+﻿/*
+  Copyright (c) 2021 wujiaxu <void00@foxmail.com>
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+      http://www.apache.org/licenses/LICENSE-2.0
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+#ifndef __RING_QUEUE_H
+#define __RING_QUEUE_H
+
+#include <stdint.h>
+#include <string.h>
+#include <atomic>
+#include <new>
+#include <utility>
 #include <chrono>
-#include <iostream>
-#include <string>
-#include <vector>
-#include <queue>
-#include <mutex>
-#include <stdlib.h>
-#include <memory>
-#include <array>
-#include <fstream>
+#include <thread>
 
-#include "active.h"
-#include "RingQueue.h"
+#define __CHECK_POWER_OF_2(x) ((x) > 0 && ((x) & ((x) - 1)) == 0)
 
-//#include "mimalloc-new-delete.h"
-//#include "mimalloc-override.h"
-//#include "mimalloc.h"
+namespace { // not for user
+    template <typename T, unsigned int capacity>
+    class __spsc_queue;
+}
 
-using namespace std;
-using namespace chrono;
+// replace boost/lockfree/spsc_queue.hpp
+// The spsc_queue class provides a single-producer/single-consumer fifo queue
+// pushing and popping is wait-free
+template <typename T, unsigned int capacity>
+class spsc_queue
+{
+public:
+    spsc_queue() { }
+    ~spsc_queue() { }
+    spsc_queue(const spsc_queue&) = delete;
+    spsc_queue(spsc_queue&&) = delete;
+    spsc_queue& operator=(const spsc_queue&) = delete;
+    spsc_queue& operator=(spsc_queue&&) = delete;
 
+public:
+    //void init();
 
-//#define USE_ACTIVE
+    int read_available() const;
+    void* end_buf() const;
+    void* begin_buf() const;
 
-template <size_t ArgBytes>
-struct UncompressedEntry {
-    // Uniquely identifies a log message by its format string and file
-    // location, assigned at compile time by the preprocessor.
-    uint32_t fmtId{ 0 };
+    bool try_push(const T& t);
+    bool try_push(T&& t);
+    void wait_push(const T& t);
+    void wait_push(T&& t);
+    bool pop(T& ret);
 
-    // Number of bytes for this header and the various uncompressed
-    // log arguments after it
-    uint32_t entrySize{ 0 };
+    // Attempt to reserve contiguous space for the producer without making 
+    // it visible to the consumer. The caller should invoke finish() before
+    // invoking reserve() again to make the bytes reserved visible to the 
+    // consumer.
+    // This mechanism is in place to allow the producer to initialize the 
+    // contents of the reservation before exposing it to the consumer.This
+    // function will block behind the consumer if there's not enough space.
+    T* reserve_1();
+    void finish_1();
 
-    // Stores the rdtsc() value at the time of the log function invocation
-    uint64_t timestamp{ 0 };
+    T* peek(int* n, const unsigned int max);
+    void consume(const unsigned int n);
 
-    //char argData[0];
+    // =====================================================
 
-    // After this header are the uncompressed arguments required by
-    // the original format string
-    char argData[ArgBytes];
-    char* dyMem{ nullptr };
+    //void wait_push(T* ret, int n);
 
-    //std::array<char, ArgBytes> argData{0};
+    int push(const T* ret, int n);
+    int push(T* ret, int n);
+    int pop(T* ret, int n);
 
-    //mutable  std::unique_ptr<char[]> dyMem{nullptr};
-
-    /*UncompressedEntry(int numBytesDym)
-        : dyMem(new char[numBytesDym]) {
-    }*/
-
-    UncompressedEntry() {}
-
-    //~UncompressedEntry() {}
-
-    // UncompressedEntry(const UncompressedEntry& other) = delete;
-    // UncompressedEntry& operator=(const UncompressedEntry& other) = delete;
-
-    //UncompressedEntry(const UncompressedEntry& other)
-    //    : fmtId(other.fmtId)
-    //    , entrySize(other.entrySize)
-    //    , timestamp(other.timestamp)
-    //    , dyMem(other.dyMem.release())/*dyMem(other.dyMem)*/ {
-
-    //    memcpy(argData.data(), other.argData.data(), ArgBytes);
-    //    //memcpy(argData, other.argData, ArgBytes);
-    //}
-
-    //UncompressedEntry(UncompressedEntry&& other)
-    //    : fmtId(other.fmtId)
-    //    , entrySize(other.entrySize)
-    //    , timestamp(other.timestamp)
-    //    , dyMem(other.dyMem.release()) /*dyMem(other.dyMem)*/ {
-
-    //    memcpy(argData.data(), other.argData.data(), ArgBytes);
-    //    //memcpy(argData, other.argData, ArgBytes);
-    //}
-
-    //UncompressedEntry& operator=(const UncompressedEntry& other) {
-    //    fmtId = other.fmtId;
-    //    entrySize = other.entrySize;
-    //    timestamp = other.timestamp;
-    //    memcpy(argData.data(), other.argData.data(), ArgBytes);
-    //    //memcpy(argData, other.argData, ArgBytes);
-    //    dyMem.reset(other.dyMem.release());
-    //    //dyMem = other.dyMem;
-
-    //    return *this;
-    //}
-
-    //UncompressedEntry& operator=(UncompressedEntry&& other) {
-    //    //std::swap(fmtId, other.fmtId);
-    //    //std::swap(entrySize, other.entrySize);
-    //    //std::swap(timestamp, other.timestamp);
-    //    //argData.swap(other.argData);
-    //    //dyMem.swap(other.dyMem);
-
-    //    fmtId = other.fmtId;
-    //    entrySize = other.entrySize;
-    //    timestamp = other.timestamp;
-    //    memcpy(argData.data(), other.argData.data(), ArgBytes);
-    //    //memcpy(argData, other.argData, ArgBytes);
-    //    dyMem.reset(other.dyMem.release());
-    //    //dyMem = other.dyMem;
-
-    //    return *this;
-    //}
+private:
+    __spsc_queue<T, capacity> queue_;
 };
 
-const int AddNum = 100000000;
-const int ThreadNum = 1;
-const size_t ArgNum = 24;
 
-#ifndef USE_ACTIVE
-const int RingBufSize = 16 * 1024;
-//const int batchSizePush = 128;
-const int batchSizePop = 210;
-#endif
-
-std::thread Threads[ThreadNum];
-
-int Result = 0;
-
-
-typedef std::function< void() > Callback;
-
-#ifndef USE_ACTIVE
-/*Callback*/ // UncompressedEntry<ArgNum> stageBufPop[batchSizePop]{0};
-//UncompressedEntry<ArgNum> sinkBufPop[batchSizePop]{ 0 };
-/*Callback*/ //const UncompressedEntry<ArgNum> stageBufPush[batchSizePush]{0};
-//std::queue<UncompressedEntry<ArgNum>> cachePop{};
-#endif
-
-#ifdef USE_ACTIVE
-auto activeQueue = Active::createActive();
-#else
-std::vector< spsc_queue<UncompressedEntry<ArgNum>, RingBufSize>* > pStagingBuffers;
-//auto ringQueue = new spsc_queue</*Callback*/UncompressedEntry<ArgNum>, RingBufSize>();
-//auto sinkQueue = new spsc_queue</*Callback*/UncompressedEntry<ArgNum>, RingBufSize * 128>();
-
-const int OutBufSize = 16 * 1024 * 1024;
-
-std::unique_ptr<char[]> pOutBufUptr{new char[OutBufSize]};
-
-std::unique_ptr<std::ofstream> outptr;
-#endif
-
-
-void add(int index) {
-    int i = 0;
-
-    auto pThdLocalSBuf = pStagingBuffers.at(index);
-
-    while (i < AddNum/* + 1000*/) {
-
-        //std::cout << i << std::endl;
-#ifdef USE_ACTIVE
-        activeQueue->send([&] { ++Result; });
-        i++;
-#else
-        //UncompressedEntry<ArgNum> myMsg/*(256)*/;
-        //pStagingBuffers.at(index)->wait_push(std::move(myMsg));
-        //i++;
-
-        auto pSpace = pThdLocalSBuf->reserve_1();
-        pSpace->entrySize = ArgNum + 24;
-        pSpace->timestamp = 0;
-        pSpace->fmtId = 7;
-        //pSpace->dyMem.reset(new char[32]);
-        pThdLocalSBuf->finish_1();
-
-        i++;
-
-        /*bool stat = ringQueue->try_push([&] { ++Result; });
-        if (stat) i++;*/
-        /*int n = ringQueue->push(stageBufPush, batchSizePush);
-        i += n;*/
-#endif 
-    }
-
+////
+// template inl, not for user
+template <typename T, unsigned int capacity>
+int spsc_queue<T, capacity>::read_available() const
+{
+    return queue_.read_available();
 }
 
-#ifndef USE_ACTIVE
-void RingBufBG() {
-    //Callback func;
-    long j = 0;
+template <typename T, unsigned int capacity>
+void* spsc_queue<T, capacity>::end_buf() const
+{
+    return queue_.end_buf();
+}
 
-    char* p = pOutBufUptr.get();
-    unsigned int remain = OutBufSize;
+template <typename T, unsigned int capacity>
+void* spsc_queue<T, capacity>::begin_buf() const
+{
+    return queue_.begin_buf();
+}
 
-    UncompressedEntry<ArgNum>* pStageBufPop;
-    //UncompressedEntry<ArgNum> stageBufPop[batchSizePop];
-    while (/*Result != AddNum * ThreadNum*/ j < AddNum * ThreadNum) {
-        /*bool stat = ringQueue->pop(func);
-        if (stat) func();*/
-        /*UncompressedEntry<ArgNum>* pStageBufPop = stageBufPop;*/
-        int nPerItr = 0;
+template <typename T, unsigned int capacity>
+bool spsc_queue<T, capacity>::try_push(const T& t)
+{
+    return queue_.try_push(t);
+}
 
-        for (int index = 0; index < ThreadNum; index++) {
-            int n = 0;
-            pStageBufPop = nullptr;
-            pStageBufPop = pStagingBuffers.at(index)->peek(&n, batchSizePop);
+template <typename T, unsigned int capacity>
+bool spsc_queue<T, capacity>::try_push(T&& t)
+{
+    return queue_.try_push(std::move(t));
+}
 
-            if (n == 0) continue;
+template <typename T, unsigned int capacity>
+void spsc_queue<T, capacity>::wait_push(const T& t)
+{
+    queue_.wait_push(t);
+}
 
-            //std::cout << "" << "" << "" << "";
+template <typename T, unsigned int capacity>
+void spsc_queue<T, capacity>::wait_push(T&& t)
+{
+    queue_.wait_push(std::move(t));
+}
 
-            int count = n;
+template <typename T, unsigned int capacity>
+bool spsc_queue<T, capacity>::pop(T& t)
+{
+    return queue_.pop(t);
+}
 
-            std::cout << count << std::endl;
+template <typename T, unsigned int capacity>
+T* spsc_queue<T, capacity>::reserve_1()
+{
+    return queue_.reserve_1();
+}
 
-            while (count > 0) {
+template <typename T, unsigned int capacity>
+void spsc_queue<T, capacity>::finish_1()
+{
+    queue_.finish_1();
+}
 
-                if (remain >= pStageBufPop->entrySize) {
-                    *(uint32_t*)p = pStageBufPop->fmtId;
-                    *(uint64_t*)(p + 4) = pStageBufPop->timestamp;
+template <typename T, unsigned int capacity>
+T* spsc_queue<T, capacity>::peek(int* n, const unsigned int max)
+{
+    return queue_.peek(n, max);
+}
 
-                    memcpy(p + 12, pStageBufPop->argData, ArgNum);
+template <typename T, unsigned int capacity>
+void spsc_queue<T, capacity>::consume(const unsigned int n)
+{
+    queue_.consume(n);
+}
 
-                    p += 12 + ArgNum;
 
-                    ++pStageBufPop;
-                    if (pStageBufPop == pStagingBuffers.at(index)->end_buf())
-                        pStageBufPop = (UncompressedEntry<ArgNum>*)pStagingBuffers.at(index)->begin_buf();
+//template <typename T, unsigned int capacity>
+//void spsc_queue<T, capacity>::wait_push(T* ret, int n)
+//{
+//    queue_.wait_push(ret, n);
+//}
 
-                    --count;
-                    remain -= 12 + ArgNum;
-                }
-                else {
-                    std::cout << pStageBufPop->entrySize << std::endl;
-                    p = pOutBufUptr.get();
-                    remain = OutBufSize;
-                }
-            }
+template <typename T, unsigned int capacity>
+int spsc_queue<T, capacity>::push(const T* ret, int n)
+{
+    return queue_.push(ret, n);
+}
 
-            pStagingBuffers.at(index)->consume(n);
+template <typename T, unsigned int capacity>
+int spsc_queue<T, capacity>::push(T* ret, int n)
+{
+    return queue_.push(ret, n);
+}
 
-            nPerItr += n;
+template <typename T, unsigned int capacity>
+int spsc_queue<T, capacity>::pop(T* ret, int n)
+{
+    return queue_.pop(ret, n);
+}
+
+
+// Number of bytes in a cache-line in our x86 machines.
+static const uint32_t BYTES_PER_CACHE_LINE = 64;
+
+
+namespace {
+    struct __fifo
+    {
+        //unsigned int cacheFreeSpace;
+        unsigned int in;
+        // An extra cache-line to separate the variables that are primarily
+        // updated/read by the producer (above) from the ones by the
+        // consumer(below)
+        char cacheLineSpacer[1 * BYTES_PER_CACHE_LINE];
+        unsigned int mask;
+        unsigned int size;
+        unsigned int out;
+        void* buffer;
+        void* endOfBuffer;
+    };
+
+    static inline unsigned int _min(unsigned int a, unsigned int b)
+    {
+        return (a < b) ? a : b;
+    }
+
+    template <typename T, bool is_trivial = std::is_trivial<T>::value>
+    class __spsc_worker;
+
+    template <typename T, unsigned int capacity>
+    class __spsc_queue
+    {
+    public:
+        __spsc_queue();
+        ~__spsc_queue() {}
+        __spsc_queue(const __spsc_queue&) = delete;
+        __spsc_queue(__spsc_queue&&) = delete;
+        __spsc_queue& operator=(const __spsc_queue&) = delete;
+        __spsc_queue& operator=(__spsc_queue&&) = delete;
+
+    public:
+
+        int read_available() const;
+        void* end_buf() const;
+        void* begin_buf() const;
+
+        bool try_push(const T& t);
+        bool try_push(T&& t);
+        void wait_push(const T& t);
+        void wait_push(T&& t);
+        bool pop(T& ret);
+
+        T* reserve_1();
+        void finish_1();
+
+        T* peek(int* n, const unsigned int max);
+        void consume(const unsigned int n);
+
+        //void wait_push(T* ret, int n);
+        int push(const T* ret, int n);
+        int push(T* ret, int n);
+        int pop(T* ret, int n);
+
+    private:
+        __fifo fifo_;
+        T arr_[capacity];
+
+        using WORKER = __spsc_worker<T, std::is_trivial<T>::value>;
+        static_assert(__CHECK_POWER_OF_2(capacity), "Capacity MUST power of 2");
+    };
+
+    template <typename T, unsigned int capacity>
+    __spsc_queue<T, capacity>::__spsc_queue()
+    {
+        //fifo_.cacheFreeSpace = capacity;
+        fifo_.in = 0;
+        fifo_.out = 0;
+        fifo_.mask = capacity - 1;
+        fifo_.size = capacity;
+        fifo_.buffer = &arr_;
+        fifo_.endOfBuffer = arr_ + capacity;
+        //minFreeSpace_ = capacity;
+    }
+
+    template <typename T, unsigned int capacity>
+    int __spsc_queue<T, capacity>::read_available() const
+    {
+        return fifo_.in - fifo_.out;
+    }
+
+    template <typename T, unsigned int capacity>
+    void* __spsc_queue<T, capacity>::begin_buf() const
+    {
+        return fifo_.buffer;
+    }
+
+    template <typename T, unsigned int capacity>
+    void* __spsc_queue<T, capacity>::end_buf() const
+    {
+        return fifo_.endOfBuffer;
+    }
+
+    template <typename T, unsigned int capacity>
+    bool __spsc_queue<T, capacity>::try_push(const T& t)
+    {
+        // if (minFreeSpace_ > 0) {
+        //    arr_[fifo_.in & (capacity - 1)] = t;
+        //    --minFreeSpace_;
+        //    asm volatile("sfence" ::: "memory");
+        //    ++fifo_.in;
+        //    return true;
+        // }
+        // else {
+        //    if (capacity - fifo_.in + fifo_.out == 0)
+        //        return false;
+        //    minFreeSpace_ = capacity - fifo_.in + fifo_.out;
+        //    arr_[fifo_.in & (capacity - 1)] = t;
+        //    --minFreeSpace_;
+        //    asm volatile("sfence" ::: "memory");
+        //    //Fence::sfence();
+        //    ++fifo_.in;
+        //    return true;
+        // }
+
+        if (capacity - fifo_.in + fifo_.out == 0)
+            return false;
+
+        arr_[fifo_.in & (capacity - 1)] = t;
+
+        asm volatile("sfence" ::: "memory");
+        //Fence::sfence();
+
+        ++fifo_.in;
+
+        return true;
+    }
+
+    template <typename T, unsigned int capacity>
+    bool __spsc_queue<T, capacity>::try_push(T&& t)
+    {
+        // if (minFreeSpace_ > 0) {
+        //     arr_[fifo_.in & (capacity - 1)] = t;
+        //     --minFreeSpace_;
+        //     asm volatile("sfence" ::: "memory");
+        //     ++fifo_.in;
+        //     return true;
+        // }
+        // else {
+        //     if (capacity - fifo_.in + fifo_.out == 0)
+        //         return false;
+        //     minFreeSpace_ = capacity - fifo_.in + fifo_.out;
+        //     arr_[fifo_.in & (capacity - 1)] = std::move(t);
+        //     --minFreeSpace_;
+        //     asm volatile("sfence" ::: "memory");
+        //     ++fifo_.in;
+        //     return true;
+        // }
+
+        if (capacity - fifo_.in + fifo_.out == 0)
+            return false;
+
+        arr_[fifo_.in & (capacity - 1)] = std::move(t);
+
+        asm volatile("sfence" ::: "memory");
+        //Fence::sfence();
+
+        ++fifo_.in;
+
+        return true;
+    }
+
+    template <typename T, unsigned int capacity>
+    void __spsc_queue<T, capacity>::wait_push(const T& t)
+    {
+        while (capacity - fifo_.in + fifo_.out == 0) {
+            //std::this_thread::sleep_for(std::chrono::microseconds(1));
+            std::cout << "";
         }
 
-        std::cout << "" << "" << "" << "";
+        arr_[fifo_.in & (capacity - 1)] = t;
 
-        j += nPerItr;
+        asm volatile("sfence" ::: "memory");
+        //Fence::sfence();
 
-        //std::cout << "";
+        ++fifo_.in;
     }
-}
 
-//void sinkBufBG() {
-//    //Callback func;
-//    UncompressedEntry<ArgNum> sinkBufPop[batchSizePop];
-//    int j = 0;
-//    while (/*Result != AddNum * ThreadNum*/ j < AddNum * ThreadNum) {
-//
-//        int n = sinkQueue->pop(/*pStageBufPop*/sinkBufPop, batchSizePop);
-//
-//        cachePop.pop();
-//
-//        //for (int i = 0; i < n; i++) {
-//        //    /*stageBufPop[i]()*/ char* p = sinkBufPop[i].argData.data();
-//        //    p[5] = 'a';
-//
-//        //    *outptr.get() << p[5];
-//        //}
-//
-//        j += n;
-//    }
-//}
-#endif
+    template <typename T, unsigned int capacity>
+    void __spsc_queue<T, capacity>::wait_push(T&& t)
+    {
+        while (capacity - fifo_.in + fifo_.out == 0) {
+            //std::this_thread::sleep_for(std::chrono::microseconds(1));
+            std::cout << "";
+        }
 
-int main() {
+        arr_[fifo_.in & (capacity - 1)] = std::move(t);
 
-#ifndef USE_ACTIVE
-    //for (int i = 0; i < batchSizePush; i++) {
-    //    //stageBufPush[i] = [&] { ++Result; };
-    //    UncompressedEntry<ArgNum> myMsg;
-    //    stageBufPush[i] = std::move(myMsg);
+        asm volatile("sfence" ::: "memory");
+        //Fence::sfence();
+
+        ++fifo_.in;
+    }
+
+    template <typename T, unsigned int capacity>
+    bool __spsc_queue<T, capacity>::pop(T& t)
+    {
+        if (fifo_.in - fifo_.out == 0)
+            return false;
+
+        t = std::move(arr_[fifo_.out & (capacity - 1)]);
+
+        asm volatile("sfence" ::: "memory");
+        //Fence::sfence();
+        //Fence::lfence();
+
+        ++fifo_.out;
+
+        return true;
+    }
+
+    template <typename T, unsigned int capacity>
+    T* __spsc_queue<T, capacity>::reserve_1()
+    {
+        while (capacity - fifo_.in + fifo_.out == 0) {
+            std::cout << "" << "";
+        }
+
+        //asm volatile("mfence" ::: "memory");
+
+        // Ensure that we sample the fifo_.out index - before - we start putting
+        // bytes into the arr_.
+
+        return arr_ + (fifo_.in & fifo_.mask);
+    }
+
+    template <typename T, unsigned int capacity>
+    void __spsc_queue<T, capacity>::finish_1()
+    {
+        // Ensures producer finishes writes before bump
+        asm volatile("sfence" ::: "memory");
+        ++fifo_.in;
+        //--fifo_.cacheFreeSpace;
+    }
+
+    template <typename T, unsigned int capacity>
+    T* __spsc_queue<T, capacity>::peek(int* n, const unsigned int max)
+    {
+        *n = _min(max, fifo_.in - fifo_.out);
+
+        return arr_ + (fifo_.out & fifo_.mask);
+    }
+
+    template <typename T, unsigned int capacity>
+    void __spsc_queue<T, capacity>::consume(const unsigned int n)
+    {
+        // Ensures consumer finishes writes before bump
+        asm volatile("sfence" ::: "memory");
+        fifo_.out += n;
+    }
+
+    //template <typename T, unsigned int capacity>
+    //void __spsc_queue<T, capacity>::wait_push(T* ret, int n)
+    //{
+    //    WORKER::wait_push(&fifo_, ret, n);
     //}
-    outptr.reset(new std::ofstream);
-    std::ios_base::openmode mode = std::ios_base::out;
-    mode |= std::ios_base::trunc/*app*/;
-    outptr.get()->open("./test.log", mode);
 
-    //std::cout << "test" << std::endl;
-
-    //cachePop.reserve(RingBufSize * 128);
-    for (int i = 0; i < ThreadNum; i++) {
-        pStagingBuffers.push_back(new spsc_queue<UncompressedEntry<ArgNum>, RingBufSize>);
-    }
-#endif
-
-    auto start = system_clock::now();
-
-    for (int i = 0; i < ThreadNum; i++) {
-        Threads[i] = std::thread(add, i);
+    template <typename T, unsigned int capacity>
+    int __spsc_queue<T, capacity>::push(const T* ret, int n)
+    {
+        return WORKER::push(&fifo_, ret, n);
     }
 
-#ifndef USE_ACTIVE
-    std::thread RingBufBGThrread(RingBufBG);
-    //std::thread sinkBufBGThrread(sinkBufBG);
-#endif
-
-    std::cout << "test" << std::endl;
-
-    for (int i = 0; i < ThreadNum; i++) {
-        Threads[i].join();
+    template <typename T, unsigned int capacity>
+    int __spsc_queue<T, capacity>::push(T* ret, int n)
+    {
+        return WORKER::push(&fifo_, ret, n);
     }
 
-    auto end = system_clock::now();
-    auto duration = duration_cast<microseconds>(end - start);
-    cout << "cost: "
-        << double(duration.count()) * microseconds::period::num / microseconds::period::den << " seconds" << endl;
+    template <typename T, unsigned int capacity>
+    int __spsc_queue<T, capacity>::pop(T* ret, int n)
+    {
+        return WORKER::pop(&fifo_, ret, n);
+    }
 
-#ifndef USE_ACTIVE
-    RingBufBGThrread.join();
-    //sinkBufBGThrread.join();
-#endif
+    template <typename T>
+    class __spsc_worker<T, true>
+    {
+    public:
 
+        //static void wait_push(__fifo* fifo, T* ret, int n)
+        //{
+        //    if (n == 0)
+        //        return;
+        //    while (fifo->size - fifo->in + fifo->out < (unsigned int)n) {
+        //        std::cout << "";
+        //    }
+        //    unsigned int idx_in = fifo->in & fifo->mask;
+        //    unsigned int l = _min(n, fifo->size - idx_in);
+        //    T* arr = (T*)fifo->buffer;
+        //    memcpy(arr + idx_in, ret, l * sizeof(T));
+        //    memcpy(arr, ret + l, (n - l) * sizeof(T));
+        //    asm volatile("sfence" ::: "memory");
+        //    //Fence::sfence();
+        //    fifo->in += n;
+        //}
 
-#ifdef USE_ACTIVE
-    //while (Result != AddNum * ThreadNum) { std::cout << Result << std::endl; }
-#endif
+        static int push(__fifo* fifo, const T* ret, int n)
+        {
+            unsigned int len = _min(n, fifo->size - fifo->in + fifo->out);
+            if (len == 0)
+                return 0;
 
-    std::cout << "Result: " << Result << std::endl;
+            unsigned int idx_in = fifo->in & fifo->mask;
+            unsigned int l = _min(len, fifo->size - idx_in);
+            T* arr = (T*)fifo->buffer;
 
-    end = system_clock::now();
-    duration = duration_cast<microseconds>(end - start);
+            memcpy(arr + idx_in, ret, l * sizeof(T));
+            memcpy(arr, ret + l, (len - l) * sizeof(T));
 
-    cout << "cost: "
-        << double(duration.count()) * microseconds::period::num / microseconds::period::den << " seconds" << endl;
+            asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
 
+            fifo->in += len;
 
-    return 0;
+            return len;
+        }
+
+        static int push(__fifo* fifo, T* ret, int n)
+        {
+            unsigned int len = _min(n, fifo->size - fifo->in + fifo->out);
+            if (len == 0)
+                return 0;
+
+            unsigned int idx_in = fifo->in & fifo->mask;
+            unsigned int l = _min(len, fifo->size - idx_in);
+            T* arr = (T*)fifo->buffer;
+
+            memcpy(arr + idx_in, ret, l * sizeof(T));
+            memcpy(arr, ret + l, (len - l) * sizeof(T));
+
+            asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
+
+            fifo->in += len;
+
+            return len;
+        }
+
+        static int pop(__fifo* fifo, T* ret, int n)
+        {
+            unsigned int len = _min(n, fifo->in - fifo->out);
+            if (len == 0)
+                return 0;
+
+            asm volatile("lfence" ::: "memory");
+
+            unsigned int idx_out = fifo->out & fifo->mask;
+            unsigned int l = _min(len, fifo->size - idx_out);
+            T* arr = (T*)fifo->buffer;
+
+            memcpy(ret, arr + idx_out, l * sizeof(T));
+            memcpy(ret + l, arr, (len - l) * sizeof(T));
+
+            //std::cout << "test" << std::endl;
+
+            //asm volatile("sfence" ::: "memory");
+            asm volatile("mfence" ::: "memory");
+            //Fence::sfence();
+            //Fence::lfence();
+
+            fifo->out += len;
+
+            return len;
+        }
+    };
+
+    template <typename T>
+    class __spsc_worker<T, false>
+    {
+    public:
+        static int push(__fifo* fifo, const T* ret, int n)
+        {
+            unsigned int len = _min(n, fifo->size - fifo->in + fifo->out);
+            if (len == 0)
+                return 0;
+
+            unsigned int idx_in = fifo->in & fifo->mask;
+            unsigned int l = _min(len, fifo->size - idx_in);
+            T* arr = (T*)fifo->buffer;
+
+            for (unsigned int i = 0; i < l; i++)
+                arr[idx_in + i] = /*std::move*/(ret[i]);
+
+            for (unsigned int i = 0; i < len - l; i++)
+                arr[i] = /*std::move*/(ret[l + i]);
+
+            asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
+
+            fifo->in += len;
+
+            return len;
+        }
+
+        static int push(__fifo* fifo, T* ret, int n)
+        {
+            unsigned int len = _min(n, fifo->size - fifo->in + fifo->out);
+            if (len == 0)
+                return 0;
+
+            unsigned int idx_in = fifo->in & fifo->mask;
+            unsigned int l = _min(len, fifo->size - idx_in);
+            T* arr = (T*)fifo->buffer;
+
+            for (unsigned int i = 0; i < l; i++)
+                arr[idx_in + i] = std::move(ret[i]);
+
+            for (unsigned int i = 0; i < len - l; i++)
+                arr[i] = std::move(ret[l + i]);
+
+            asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
+
+            fifo->in += len;
+
+            return len;
+        }
+
+        static int pop(__fifo* fifo, T* ret, int n)
+        {
+            unsigned int len = _min(n, fifo->in - fifo->out);
+            if (len == 0)
+                return 0;
+
+            asm volatile("lfence" ::: "memory");
+
+            unsigned int idx_out = fifo->out & fifo->mask;
+            unsigned int l = _min(len, fifo->size - idx_out);
+            T* arr = (T*)fifo->buffer;
+
+            for (unsigned int i = 0; i < l; i++)
+                ret[i] = std::move(arr[idx_out + i]);
+
+            for (unsigned int i = 0; i < len - l; i++)
+                ret[l + i] = std::move(arr[i]);
+
+            //asm volatile("sfence" ::: "memory");
+            //Fence::sfence();
+            //Fence::lfence();
+
+            asm volatile("mfence" ::: "memory");
+
+            fifo->out += len;
+
+            return len;
+        }
+    };
+
 }
+
+
+#endif  // __RING_QUEUE_H
