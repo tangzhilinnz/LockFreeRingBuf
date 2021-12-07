@@ -261,7 +261,7 @@ namespace {
         fifo_.mask = capacity - 1;
         fifo_.size = capacity;
         fifo_.buffer = &arr_;
-        fifo_.endOfBuffer = arr_ + capacity;
+        fifo_.endOfBuffer = &arr_ + capacity;
         //minFreeSpace_ = capacity;
     }
 
