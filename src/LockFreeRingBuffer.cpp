@@ -12,6 +12,7 @@
 
 #include "active.h"
 #include "RingQueue.h"
+#include "SinkBuffer.h"
 
 //#include "mimalloc-new-delete.h"
 //#include "mimalloc-override.h"
@@ -109,14 +110,14 @@ struct UncompressedEntry {
     //}
 };
 
-const int AddNum = 100000000;
-const int ThreadNum = 1;
-const size_t ArgNum = 24;
+const int AddNum = 20000000;
+const int ThreadNum = 5;
+const size_t ArgNum = 16;
 
 #ifndef USE_ACTIVE
 const int RingBufSize = 16 * 1024;
 //const int batchSizePush = 128;
-const int batchSizePop = 210;
+const int batchSizePop = 1024;
 #endif
 
 std::thread Threads[ThreadNum];
@@ -140,7 +141,7 @@ std::vector< spsc_queue<UncompressedEntry<ArgNum>, RingBufSize>* > pStagingBuffe
 //auto ringQueue = new spsc_queue</*Callback*/UncompressedEntry<ArgNum>, RingBufSize>();
 //auto sinkQueue = new spsc_queue</*Callback*/UncompressedEntry<ArgNum>, RingBufSize * 128>();
 
-const int OutBufSize = 16 * 1024 * 1024;
+const int OutBufSize = 32 * 1024 * 1024;
 
 std::unique_ptr<char[]> pOutBufUptr{new char[OutBufSize]};
 
@@ -165,7 +166,7 @@ void add(int index) {
         //i++;
 
         auto pSpace = pThdLocalSBuf->reserve_1();
-        pSpace->entrySize = ArgNum + 24;
+        pSpace->entrySize = ArgNum + 12;
         pSpace->timestamp = 0;
         pSpace->fmtId = 7;
         //pSpace->dyMem.reset(new char[32]);
@@ -190,6 +191,8 @@ void RingBufBG() {
     char* p = pOutBufUptr.get();
     unsigned int remain = OutBufSize;
 
+    int allocNum = 0;
+
     UncompressedEntry<ArgNum>* pStageBufPop;
     //UncompressedEntry<ArgNum> stageBufPop[batchSizePop];
     while (/*Result != AddNum * ThreadNum*/ j < AddNum * ThreadNum) {
@@ -209,7 +212,7 @@ void RingBufBG() {
 
             int count = n;
 
-            std::cout << count << std::endl;
+            //std::cout << count << std::endl;
 
             while (count > 0) {
 
@@ -229,9 +232,10 @@ void RingBufBG() {
                     remain -= 12 + ArgNum;
                 }
                 else {
-                    std::cout << pStageBufPop->entrySize << std::endl;
+                    //std::cout << pStageBufPop->entrySize << std::endl;
                     p = pOutBufUptr.get();
                     remain = OutBufSize;
+                    ++allocNum;
                 }
             }
 
@@ -240,12 +244,13 @@ void RingBufBG() {
             nPerItr += n;
         }
 
-        std::cout << "" << "" << "" << "";
+        //std::cout << "" << "" << "" << "";
 
         j += nPerItr;
 
         //std::cout << "";
     }
+    std::cout << "allocNum: " << allocNum << std::endl;
 }
 
 //void sinkBufBG() {
