@@ -24,7 +24,7 @@ INCLUDE_DIRECTORIES(/root/Learning/c_c++/LockFreeRingBuf/include/)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 
 add_executable(test1
-    src/LockFreeRingBuffer.cpp
+    src/LockFreeRingBuffer.cpp  src/Cycles.cpp
  "include/SinkBuffer.h" "include/Util.h" "include/StringPiece.h")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")

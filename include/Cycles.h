@@ -41,7 +41,7 @@ class Cycles {
      * Return the current value of the fine-grain CPU cycle counter
      * (accessed via the RDTSC instruction).
      */
-    static NANOLOG_ALWAYS_INLINE
+    static /*NANOLOG_ALWAYS_INLINE*/
     uint64_t
     rdtsc()
     {

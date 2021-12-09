@@ -37,6 +37,7 @@ struct UncompressedEntry {
 
     // Stores the rdtsc() value at the time of the log function invocation
     uint64_t timestamp{ 0 };
+    //struct timeval tv;
 
     //char argData[0];
 
@@ -53,7 +54,7 @@ struct UncompressedEntry {
         : dyMem(new char[numBytesDym]) {
     }*/
 
-    UncompressedEntry() {}
+    //UncompressedEntry() {}
 
     //~UncompressedEntry() {}
 
@@ -111,8 +112,8 @@ struct UncompressedEntry {
     //}
 };
 
-const int AddNum = 20000000;
-const int ThreadNum = 5;
+const int AddNum = /*33333333*/100000000;
+const int ThreadNum = 1;
 const size_t ArgNum = 16;
 
 #ifndef USE_ACTIVE
@@ -165,11 +166,19 @@ void add(int index) {
         //UncompressedEntry<ArgNum> myMsg/*(256)*/;
         //pStagingBuffers.at(index)->wait_push(std::move(myMsg));
         //i++;
+        uint64_t timestamp = Cycles::rdtsc();
+        //long j = 10;
+        //while (--j);
 
         auto pSpace = pThdLocalSBuf->reserve_1();
         pSpace->entrySize = ArgNum + 12;
-        pSpace->timestamp = Cycles::rdtsc();
+        //gettimeofday(&pSpace->tv, NULL);
+
         pSpace->fmtId = 7;
+
+        //long j = 10;
+
+        pSpace->timestamp = timestamp;
         //pSpace->dyMem.reset(new char[32]);
         pThdLocalSBuf->finish_1();
 
@@ -211,17 +220,18 @@ void RingBufBG() {
 
             if (n == 0) continue;
 
-            //std::cout << "" << "" << "" << "";
+            std::cout << n << std::flush;
 
             int count = n;
 
-            //std::cout << count << std::endl;
+            //std::this_thread::sleep_for(std::chrono::microseconds(0));
 
             while (count > 0) {
 
                 if (remain >= pStageBufPop->entrySize) {
                     *(uint32_t*)p = pStageBufPop->fmtId;
                     *(uint64_t*)(p + 4) = pStageBufPop->timestamp;
+                    //*(struct timeval*)(p + 4) = pStageBufPop->tv;
 
                     memcpy(p + 12, pStageBufPop->argData, ArgNum);
 
@@ -248,10 +258,14 @@ void RingBufBG() {
         }
 
         //std::cout << "" << "" << "" << "";
+        //Cycles::rdtsc();
+        //Cycles::rdtsc();
+        //Cycles::rdtsc();
+        //Cycles::rdtsc();
 
         j += nPerItr;
 
-        //std::cout << "";
+        //std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
 }
 
@@ -330,14 +344,16 @@ int main() {
     //while (Result != AddNum * ThreadNum) { std::cout << Result << std::endl; }
 #endif
 
-    std::cout << "Result: " << Result << std::endl;
+    cout << "Result: " << Result << std::endl;
 
     end = system_clock::now();
     duration = duration_cast<microseconds>(end - start);
 
     cout << "cost: "
         << double(duration.count()) * microseconds::period::num / microseconds::period::den << " seconds" << endl;
-    std::cout << "allocNum: " << allocNum << std::endl;
+    cout << "allocNum: " << allocNum << std::endl;
+
+    //cout << "Cycles Per Sec: " << Cycles::getCyclesPerSec() << std::endl;
 
 
     return 0;
