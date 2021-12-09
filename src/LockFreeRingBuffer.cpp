@@ -13,6 +13,7 @@
 #include "active.h"
 #include "RingQueue.h"
 #include "SinkBuffer.h"
+#include "Cycles.h"
 
 //#include "mimalloc-new-delete.h"
 //#include "mimalloc-override.h"
@@ -143,7 +144,7 @@ std::vector< spsc_queue<UncompressedEntry<ArgNum>, RingBufSize>* > pStagingBuffe
 
 const int OutBufSize = 32 * 1024 * 1024;
 
-std::unique_ptr<char[]> pOutBufUptr{new char[OutBufSize]};
+std::unique_ptr<char[]> pOutBufUptr{ new char[OutBufSize] };
 
 std::unique_ptr<std::ofstream> outptr;
 #endif
@@ -167,7 +168,7 @@ void add(int index) {
 
         auto pSpace = pThdLocalSBuf->reserve_1();
         pSpace->entrySize = ArgNum + 12;
-        pSpace->timestamp = 0;
+        pSpace->timestamp = Cycles::rdtsc();
         pSpace->fmtId = 7;
         //pSpace->dyMem.reset(new char[32]);
         pThdLocalSBuf->finish_1();
@@ -183,6 +184,9 @@ void add(int index) {
 
 }
 
+
+int allocNum = 0;
+
 #ifndef USE_ACTIVE
 void RingBufBG() {
     //Callback func;
@@ -191,7 +195,6 @@ void RingBufBG() {
     char* p = pOutBufUptr.get();
     unsigned int remain = OutBufSize;
 
-    int allocNum = 0;
 
     UncompressedEntry<ArgNum>* pStageBufPop;
     //UncompressedEntry<ArgNum> stageBufPop[batchSizePop];
@@ -250,7 +253,6 @@ void RingBufBG() {
 
         //std::cout << "";
     }
-    std::cout << "allocNum: " << allocNum << std::endl;
 }
 
 //void sinkBufBG() {
@@ -335,6 +337,7 @@ int main() {
 
     cout << "cost: "
         << double(duration.count()) * microseconds::period::num / microseconds::period::den << " seconds" << endl;
+    std::cout << "allocNum: " << allocNum << std::endl;
 
 
     return 0;
