@@ -7,6 +7,7 @@
 
 #include "Util.h"
 #include "StringPiece.h"
+#include "Cycles.h"
 
 const int kSmallBuffer = 4000;
 const int kLargeBuffer = 4000 * 1000;
@@ -18,7 +19,8 @@ public:
     void operator=(const SinkBuffer&) = delete;
 
     SinkBuffer()
-        : cur_(data_) {
+        : cur_(data_)
+        , lastRecordedCycles_(0) {
         setCookie(cookieStart);
     }
 
@@ -34,6 +36,15 @@ public:
         }
     }
 
+    void recordCycles() { lastRecordedCycles_ = Cycles::rdtsc(); }
+    uint64_t getLastCycles() {
+        if (0 == lastRecordedCycles_)
+            lastRecordedCycles_ = Cycles::rdtsc();
+        return lastRecordedCycles_;
+    }
+    void resetCycles() { lastRecordedCycles_ = 0; }
+
+
     const char* data() const { return data_; }
     int length() const { return static_cast<int>(cur_ - data_); }
 
@@ -46,8 +57,8 @@ public:
     void bzero() { memZero(data_, sizeof data_); }
 
     // for used by GDB
-    const char* debugString() { 
-        *cur_ = '\0'; 
+    const char* debugString() {
+        *cur_ = '\0';
         return data_;
     }
     void setCookie(void (*cookie)()) { cookie_ = cookie; }
@@ -64,6 +75,7 @@ private:
     void (*cookie_)();
     char data_[SIZE];
     char* cur_;
+    uint64_t lastRecordedCycles_;
 };
 
 
