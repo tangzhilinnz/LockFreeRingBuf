@@ -64,6 +64,7 @@ public:
     // contents of the reservation before exposing it to the consumer.This
     // function will block behind the consumer if there's not enough space.
     T* reserve_1();
+    T* try_reserve_1();
     void finish_1();
 
     T* peek(int* n, const unsigned int max);
@@ -130,6 +131,12 @@ template <typename T, unsigned int capacity>
 bool spsc_queue<T, capacity>::pop(T& t)
 {
     return queue_.pop(t);
+}
+
+template <typename T, unsigned int capacity>
+T* spsc_queue<T, capacity>::try_reserve_1()
+{
+    return queue_.try_reserve_1();
 }
 
 template <typename T, unsigned int capacity>
@@ -233,6 +240,7 @@ namespace {
         void wait_push(T&& t);
         bool pop(T& ret);
 
+        T* try_reserve_1();
         T* reserve_1();
         void finish_1();
 
@@ -402,10 +410,26 @@ namespace {
     }
 
     template <typename T, unsigned int capacity>
+    T* __spsc_queue<T, capacity>::try_reserve_1()
+    {
+        if (capacity - fifo_.in + fifo_.out == 0) {
+            return nullptr;
+        }
+
+        //asm volatile("mfence" ::: "memory");
+
+        // Ensure that we sample the fifo_.out index - before - we start putting
+        // bytes into the arr_.
+
+        return arr_ + (fifo_.in & fifo_.mask);
+    }
+
+    template <typename T, unsigned int capacity>
     T* __spsc_queue<T, capacity>::reserve_1()
     {
         while (capacity - fifo_.in + fifo_.out == 0) {
             std::cout << "" << "";
+            //std::this_thread::sleep_for(std::chrono::seconds(0));
         }
 
         //asm volatile("mfence" ::: "memory");

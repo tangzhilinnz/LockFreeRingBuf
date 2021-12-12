@@ -41,19 +41,35 @@ class Cycles {
      * Return the current value of the fine-grain CPU cycle counter
      * (accessed via the RDTSC instruction).
      */
-    static /*NANOLOG_ALWAYS_INLINE*/
+    static NANOLOG_ALWAYS_INLINE
     uint64_t
     rdtsc()
     {
-#if TESTING
-        if (mockTscValue)
-            return mockTscValue;
-#endif
+//#if TESTING
+//        if (mockTscValue)
+//            return mockTscValue;
+//#endif
         size_t lo, hi;
-        __asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));
-//        __asm__ __volatile__("rdtscp" : "=a" (lo), "=d" (hi) : : "%rcx");
+        //uint64_t re;
+        //__asm__ __volatile__("rdtsc" : "=A" (re));
+        __asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi) /*:: "memory" */);
+        //__asm__ __volatile__("rdtscp" : "=a" (lo), "=d" (hi) : : "%rcx");
         return (((uint64_t)hi << 32) | lo);
+        //return re;
     }
+
+    //static NANOLOG_ALWAYS_INLINE 
+    //uint64_t rdtsc() {
+    //    uint32_t lo, hi;
+    //    __asm__ __volatile__(
+    //        "xorl %%eax, %%eax\n"
+    //        "cpuid\n"
+    //        "rdtsc\n"
+    //        : "=a" (lo), "=d" (hi)
+    //        :
+    //        : "%ebx", "%ecx");
+    //    return (uint64_t)hi << 32 | lo;
+    //}
 
     static NANOLOG_ALWAYS_INLINE
     double

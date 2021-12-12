@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -ggdb")
 
-SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O2 -Wall")
+SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -Os -Wall")
 
 INCLUDE_DIRECTORIES(/root/Learning/c_c++/LockFreeRingBuf/include/)
 
@@ -21,11 +21,10 @@ INCLUDE_DIRECTORIES(/root/Learning/c_c++/LockFreeRingBuf/include/)
 
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O2")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -O2")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Os")
 
-add_executable(test1
-    src/LockFreeRingBuffer.cpp  src/Cycles.cpp
- "include/SinkBuffer.h" "include/Util.h" "include/StringPiece.h")
+add_executable(test1 src/LockFreeRingBuffer.cpp src/Cycles.cpp)
+# "include/SinkBuffer.h" "include/Util.h" "include/StringPiece.h")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     # 新版本编译器要用 -pthread 而不是 -lpthread
@@ -36,7 +35,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     # linker which ensures that all symbols are placed in the table.
     target_link_libraries(test1 -rdynamic )
     #======================= 加入 tcmalloc 内存池支持(动态链接) ========================
-    #target_link_libraries(test1 tcmalloc)
+    target_link_libraries(test1 tcmalloc)
     #message(STATUS "tcmalloc(shared) support added")
     # ======================= 加入 jemalloc 内存池支持(动态链接) ========================
     #target_link_libraries(test1 jemalloc)

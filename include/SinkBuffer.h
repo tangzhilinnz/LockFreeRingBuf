@@ -20,6 +20,7 @@ public:
 
     SinkBuffer()
         : cur_(data_)
+        , end_(data_ + sizeof data_)
         , lastRecordedCycles_(0) {
         setCookie(cookieStart);
     }
@@ -30,10 +31,10 @@ public:
 
     void append(const char* /*restrict*/ buf, size_t len) {
         // FIXME: append partially
-        if (implicit_cast<size_t>(avail()) > len) {
+        //if (implicit_cast<size_t>(avail()) > len) {
             memcpy(cur_, buf, len);
             cur_ += len;
-        }
+        //}
     }
 
     void recordCycles() { lastRecordedCycles_ = Cycles::rdtsc(); }
@@ -50,7 +51,7 @@ public:
 
     // write to data_ directly
     char* current() { return cur_; }
-    int avail() const { return static_cast<int>(end() - cur_); }
+    int avail() const { return static_cast<int>(end_ - cur_); }
     void add(size_t len) { cur_ += len; }
 
     void reset() { cur_ = data_; }
@@ -67,7 +68,7 @@ public:
     StringPiece toStringPiece() const { return StringPiece(data_, length()); }
 
 private:
-    const char* end() const { return data_ + sizeof data_; }
+    const char* end() const { return end_; }
     // Must be outline function for cookies.
     static void cookieStart() {}
     static void cookieEnd() {}
@@ -75,6 +76,7 @@ private:
     void (*cookie_)();
     char data_[SIZE];
     char* cur_;
+    char* end_;
     uint64_t lastRecordedCycles_;
 };
 
