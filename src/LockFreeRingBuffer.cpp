@@ -126,14 +126,14 @@ struct UncompressedEntry {
     //}
 };
 
-const int AddNum = /*33333333*/100000000;
-const int ThreadNum = 1;
+const int AddNum = /*33333333*/50000000;
+const int ThreadNum = 2;
 const size_t ArgNum = 4;
 
 #ifndef USE_ACTIVE
 const int RingBufSize = 16 * 1024;
 //const int batchSizePush = 128;
-const int batchSizePop = 1024;
+const int batchSizePop = 1000;
 #endif
 
 std::thread Threads[ThreadNum];
@@ -164,7 +164,7 @@ std::vector< spsc_queue<UncompressedEntry<ArgNum>, RingBufSize>* > pStagingBuffe
 //std::unique_ptr<char[]> pOutBufUptr{ new char[OutBufSize] };
 
 const int SinkBufferSize = 64 * 1024 * 1024;
-const int CacheBufQueueSize = 8;
+const int CacheBufQueueSize = 4;
 //const int SinkBufQueueSize = 32;
 //static thread_local spsc_queue<UncompressedEntry<ArgNum>, RingBufSize>* pThdLocalSBuf;
 typedef SinkBuffer<SinkBufferSize> Buffer;
@@ -175,7 +175,7 @@ typedef SinkBuffer<SinkBufferSize> Buffer;
 
 //std::unique_ptr<TcacheBuffferQueue> cacheBufQueueUptr = std::make_unique<TcacheBuffferQueue>();
 //std::unique_ptr<TsinkBuffferQueue> sinkBufQueueUptr = std::make_unique<TsinkBuffferQueue>();
-typedef std::queue<Buffer*> TcacheBuffferQueue;
+typedef std::vector<Buffer*> TcacheBuffferQueue;
 typedef std::queue<Buffer*> TsinkBuffferQueue;
 
 TcacheBuffferQueue cacheBufQueue;
@@ -279,7 +279,7 @@ void RingBufBG() {
 
     //std::this_thread::sleep_for(std::chrono::microseconds(100));
     long j = 0;
-
+    int nItrWithNonEmptyBuf = 0;
     //cpu_set_t cpuset;
     //CPU_ZERO(&cpuset);
     //CPU_SET(2, &cpuset);
@@ -295,8 +295,8 @@ void RingBufBG() {
 
     {
         std::lock_guard<std::mutex> lock(mutexSink);
-        pBuffer = cacheBufQueue.front();
-        cacheBufQueue.pop();
+        pBuffer = cacheBufQueue.back();
+        cacheBufQueue.pop_back();
     }
 
     while (j < AddNum * ThreadNum) {
@@ -306,7 +306,6 @@ void RingBufBG() {
         /*UncompressedEntry<ArgNum>* pStageBufPop = stageBufPop;*/
 
         int nPerItr = 0;
-
         for (int index = 0; index < ThreadNum; index++) {
             int n = 0;
             pStageBufPop = nullptr;
@@ -348,14 +347,15 @@ void RingBufBG() {
                         sinkBufQueue.push(pBuffer);
 
                         if (cacheBufQueue.size() != 0) {
-                            pBuffer = cacheBufQueue.front();
-                            cacheBufQueue.pop();
+                            pBuffer = cacheBufQueue.back();
+                            cacheBufQueue.pop_back();
                         }
 
                         else {
                             pBuffer = new Buffer;
                             allocNum++;
                         }
+                        nItrWithNonEmptyBuf = 0;
                     }
 
 
@@ -377,31 +377,28 @@ void RingBufBG() {
 
         if (nPerItr == 0) {
             std::unique_lock<std::mutex> lock(condMutex);
-            workAdded.wait_for(lock, std::chrono::microseconds(1));
+            workAdded.wait_for(lock, std::chrono::microseconds(100));
         }
-        //else {
-        //    //auto cTime = Cycles::rdtsc();
-        //    //auto pTime = pBuffer->getLastCycles();
-        //    if (Cycles::rdtsc() - pBuffer->getLastCycles() > Cycles::getCyclesPerSec()) {
+        else { // nPerItr > 0, there are some log entries in the buffer
+            if (++nItrWithNonEmptyBuf > 2000) {
+                std::lock_guard<std::mutex> lock(mutexSink);
 
-        //        //std::cout << Cycles::getCyclesPerSec() << std::endl;
-        //        pBuffer->resetCycles();
+                sinkBufQueue.push(pBuffer);
 
-        //        std::lock_guard<std::mutex> lock(mutexSink);
+                if (cacheBufQueue.size() != 0) {
+                    pBuffer = cacheBufQueue.back();
+                    cacheBufQueue.pop_back();
+                }
 
-        //        sinkBufQueue.push(pBuffer);
+                else {
+                    pBuffer = new Buffer;
+                    allocNum++;
+                }
+                nItrWithNonEmptyBuf = 0;
+            }
+        }
 
-        //        if (cacheBufQueue.size() != 0) {
-        //            pBuffer = cacheBufQueue.front();
-        //            cacheBufQueue.pop();
-        //        }
-
-        //        else {
-        //            pBuffer = new Buffer;
-        //            allocNum++;
-        //        }
-        //    }
-        //}
+        std::cout << nItrWithNonEmptyBuf << std::endl;
         //std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
 
@@ -433,12 +430,12 @@ void sinkBufBG() {
                 delete pBuffer;
             else {
                 std::lock_guard<std::mutex> lock(mutexSink);
-                cacheBufQueue.push(pBuffer);
+                cacheBufQueue.push_back(pBuffer);
             }
         }
         else {
             std::unique_lock<std::mutex> lock(condMutex1);
-            workAdded1.wait_for(lock, std::chrono::microseconds(1));
+            workAdded1.wait_for(lock, std::chrono::microseconds(100));
         }
     }
 }
@@ -454,7 +451,7 @@ int main() {
     //}
 
     for (int i = 0; i < CacheBufQueueSize; i++) {
-        cacheBufQueue.push(new Buffer);
+        cacheBufQueue.push_back(new Buffer);
     }
 
 
